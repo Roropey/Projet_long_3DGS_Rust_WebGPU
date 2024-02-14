@@ -1,0 +1,1 @@
+C:\Users\romai\Documents\INP\ENSEEIHT\3A\Projet_long\Git\Learning\gsplat_rust_candle\target\debug\gsplat_rust_candle.exe: C:\Users\romai\Documents\INP\ENSEEIHT\3A\Projet_long\Git\Learning\gsplat_rust_candle\src\main.rs

@@ -1,0 +1,60 @@
+cargo:rerun-if-changed=build.rs
+cargo:info=["/usr", "/usr/local/cuda", "/opt/cuda", "/usr/lib/cuda", "C:/Program Files/NVIDIA GPU Computing Toolkit", "C:/CUDA"]
+cargo:rerun-if-env-changed=CUDA_COMPUTE_CAP
+cargo:rustc-env=CUDA_COMPUTE_CAP=75
+cargo:info=Builder { cuda_root: Some("C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.3"), kernel_paths: ["src\\affine.cu", "src\\binary.cu", "src\\cast.cu", "src\\conv.cu", "src\\fill.cu", "src\\indexing.cu", "src\\reduce.cu", "src\\ternary.cu", "src\\unary.cu"], watch: [], include_paths: ["src\\binary_op_macros.cuh", "src\\compatibility.cuh", "src\\cuda_utils.cuh"], compute_cap: Some(75), out_dir: "C:\\Users\\romai\\Documents\\INP\\ENSEEIHT\\3A\\Projet_long\\Git\\Learning\\gsplat_rust_candle\\target\\debug\\build\\candle-kernels-071e89fabc9817a3\\out", extra_args: [] }
+cargo:rustc-env=CUDA_INCLUDE_DIR=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\include
+cargo:rerun-if-changed=src\binary_op_macros.cuh
+cargo:rerun-if-changed=src\compatibility.cuh
+cargo:rerun-if-changed=src\cuda_utils.cuh
+cargo:rerun-if-env-changed=NVCC_CCBIN
+cargo:rerun-if-changed=src\affine.cu
+cargo:rerun-if-changed=src\indexing.cu
+cargo:rerun-if-changed=src\cast.cu
+cargo:rerun-if-changed=src\fill.cu
+cargo:rerun-if-changed=src\reduce.cu
+cargo:rerun-if-changed=src\conv.cu
+cargo:rerun-if-changed=src\binary.cu
+cargo:rerun-if-changed=src\ternary.cu
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(185): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_argmin(size_t, size_t, size_t, const size_t *, const T *, uint32_t *) [with T=uint32_t]" at line 364
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(145): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_min(size_t, size_t, size_t, const size_t *, const T *, T *) [with T=uint32_t]" at line 364
+
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(185): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_argmin(size_t, size_t, size_t, const size_t *, const T *, uint32_t *) [with T=int64_t]" at line 365
+
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(145): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_min(size_t, size_t, size_t, const size_t *, const T *, T *) [with T=int64_t]" at line 365
+
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(185): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_argmin(size_t, size_t, size_t, const size_t *, const T *, uint32_t *) [with T=uint8_t]" at line 366
+
+C:\Users\romai\.cargo\git\checkouts\candle-0c2b4fa9e5801351\058a910\candle-kernels\src\reduce.cu(145): warning #173-D: floating-point value does not fit in required integral type
+    shr[tid] = ((float)(1e+300 * 1e+300));
+               ^
+          detected during instantiation of "void fast_min(size_t, size_t, size_t, const size_t *, const T *, T *) [with T=uint8_t]" at line 366
+
+affine.cu
+cargo:rerun-if-changed=src\unary.cu
+fill.cu
+cast.cu
+ternary.cu
+indexing.cu
+reduce.cu
+conv.cu
+binary.cu
+unary.cu
