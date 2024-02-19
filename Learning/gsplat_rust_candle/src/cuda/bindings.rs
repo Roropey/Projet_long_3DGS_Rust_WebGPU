@@ -1,39 +1,14 @@
+//ET SI ?? : https://github.com/huggingface/candle/blob/main/candle-examples/examples/custom-ops/main.rs
+
 #[cxx::bridge]
 pub mod ffi {
     unsafe extern "C++" {
-        include!("gsplat_rust_candle/src/cuda/csrc/bindings.h");
-
-        type torchTensor;
-
-        pub fn project_gaussians_forward(num_points : int,
-            means3d : &torchTensor,
-            scales: &torchTensor,
-            glob_scale : float,
-            quats : &torchTensor,
-            viewmat : &torchTensor,
-            projmat : &torchTensor,
-            fx : float,
-            fy : float,
-            cx : float,
-            cy : float,
-            img_height: uint,
-            img_width : uint,
-            // a changer : const std::tuple<int, int, int> tile_bounds,
-            clip_thresh: float) -> UniquePtr<torchTensor>;//ptetre sharedPtr
-    }
-
-    fn to_candle_tensor(UniquePtr<torchTensor> torch_tensor) -> candle::Tensor{
-        tch_tensor = tch::Tensor::from_ptr(torch_tensor.as_ref());
-        //candle_tensor =  qqchose cf : https://github.com/huggingface/candle/issues/973
-    }
-
-    fn to_torch_tensor(candle::Tensor candle_tensor) -> torchTensor{
-        //tch_tensor = qqchose
-        tch_tensor.as_ptr()
     }
 
 }
-pub fn project_gaussians_forward(num_points : int,
+
+
+pub fn ProjectGaussians(num_points : int,
     means3d : &candle::Tensor,
     scales: &candle::Tensor,
     glob_scale : float,
@@ -46,23 +21,33 @@ pub fn project_gaussians_forward(num_points : int,
     cy : float,
     img_height: uint,
     img_width : uint,
-    // a changer : const std::tuple<int, int, int> tile_bounds,
-    clip_thresh: float) -> candle::Tensor
-{
-    torch_tensor = ffi::project_gaussians_forward(num_points,
-        to_torch_tensor(means3d),
-        to_torch_tensor(scales),
-        glob_scale,
-        to_torch_tensor(quats),
-        to_torch_tensor(viewmat),
-        to_torch_tensor(projmat),
-        fx : float,
-        fy : float,
-        cx : float,
-        cy : float,
-        img_height: uint,
-        img_width : uint,
-        // a changer : const std::tuple<int, int, int> tile_bounds,
-        clip_thresh: float);
-    to_candle_tensor(torch_tensor)
+    tile_bounds: &(i32, i32, i32),
+    clip_thresh: float) -> Result<(candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor)>
+{   
+    let max = 0;
+    let A = [means3d,scales,quats]
+    //Idee pour stack :
+    //mais c'est à revoir, pb de dimension, et voir comment faire pour unstack après, car on est sur les storages...
+    for arg in &A.iter(){
+        if arg.rank() > max{
+            max = arg.rank();
+        }
+    }
+    for arg in &A.iter(){
+        for 0..(max - arg.rank()){
+            arg.unsqueeze(0);
+        }
+    }
+    let tensor_in = stack(&A,0);
+    let c = ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh,viewmat,projmat};
+    
+    //reecriture de la fonction apply_op1_arc de tensor.rs pour bypass le fonctionnement normal
+    let (storage, shape) = c.fwd((means3d.storage())?,(scale.storage())?,(quats.storage())?);
+    let op = BackpropOp::new1(tensor_in, |s| Op::CustomOp1(s, c.clone()));
+    let tensor_out = Ok(from_storage(storage, shape, op, false));
+
+    //A FAIRE : Decomposer tensor_out en les sortie
+    //la backpropagation va marcher puisque chunk utilise narrow qui va associer l'opération Backprop narrow aux tenseurs de sorte à ce que les gradients des tenseurs
+    //de sortie reforme un tenseur unique de ces gradient, qui pourra etre rentré dans le backward de ProjectGaussian (le struct) qu'on re splitera pour donner au kernel cuda
+    //et les gradients de seront remis dans 1 gradient dans bckward de ProjectGaussian(le struct) qui sera ensuite re-split dans les bons tenseur par la backpropagation grace à l'opération Cat
 }
