@@ -4,6 +4,8 @@ use project_gaussians;
 use rasterize;
 use candle_core as candle;
 use candle::{quantized::k_quants::BlockQ2K, Tensor};
+use candle_nn::{AdamW, Optimizer, ParamsAdamW,  ops::sigmoid};
+use tch::nn::Adam;
 
 pub struct Trainer{
     device: Device,
@@ -30,7 +32,7 @@ impl Trainer {
         &mut self,
         gt_image: Tensor,
         num_points: isize // When use, put Some(...), if default value, put None
-    ){
+    )-> Self{
         num_points = num_points.unwrap_or(2000);
         self.device = Device::new_cuda(0)?;
         self.gt_image = gt_image.to_device(&self.device);
@@ -50,6 +52,7 @@ impl Trainer {
         self.img_size = Tensor::new(&[self.w, self.h, 1], &self.device)?;
         self.block = Tensor::new(&[block_x, block_y, 1], &self.device)?;
         self._init_gaussians();
+        self
     }
     pub fn _init_gaussians(&mut self){
         // Random gaussians
@@ -90,15 +93,113 @@ impl Trainer {
         //self.rgbs.requires_grad = true;
         //self.opacities.requires_grad = true;
         //self.viewmat.requires_grad = false;
+        self.viewmat.detach();
 
     }
 
     fn train(&mut self,
-        iteration: isize,
-        lr: f32,
-        save_imgs: bool,
-    ) {
-        
+        iterations: isize,// When use, put Some(...), if default value, put None
+        lr: f32,// When use, put Some(...), if default value, put None
+        save_imgs: bool,// When use, put Some(...), if default value, put None
+    ){
+        iterations = iterations.unwrap_or(1000);
+        lr = lr.unwrap_or(0.01);
+        save_imgs = save_imgs.unwrap_or(False);
+        let mut adam_optimize = AdamW::new(
+            vec![
+                candle::Var::from_tensor(&self.rgbs),
+                candle::Var::from_tensor(&self.means),
+                candle::Var::from_tensor(&self.scales),
+                candle::Var::from_tensor(&self.opacities),
+                candle::Var::from_tensor(&self.quats)],
+            ParamsAdamW {
+                lr,
+                ..Default::default()
+            }
+        )?; // Utilisation de AdamW au lieu de Adam (trouve pas Adam alors qu'il existe dans optimizer.rs ?)
+        let mse_loss = candle_nn::loss::mse;
+
+        let mut frames = Vec::new();
+
+        for iter in 0..iterations{
+            let (xys,depths,radii,conics,compensation,num_tiles_hit,cov3d) = _ProjectGaussian.apply(
+                self.means,
+                self.scales,
+                1,
+                self.quats,
+                self.viewmat,
+                self.viewmat,
+                self.focal,
+                self,focal,
+                self.w / 2,
+                self.h / 2,
+                self.h,
+                self.w,
+                self.tile_bounds,
+            );
+            //cuda.synchronize ... Pas trouver comment faire
+            out_img = _RasterizeGaussians.apply(
+                xys,
+                depths,
+                radii,
+                conics,
+                num_tiles_hit,
+                sigmoid(&self.rgbs)?,
+                sigmoid(&self.opacities)?,
+                self.h,
+                self.w,
+                self.background,
+            );
+            //cuda.synchronize ... Pas trouver comment faire
+            let loss = mse_loss(out_img,self.gt_image);
+
+            adam_optimize.zero_grad()?;
+            
+            adam_optimize.backward_step(&loss)?;
+            adam_optimize.step()?;
+            println!("Iteraion {}/{}, Loss {}",iter+1,iterations,loss.item());
+            if save_imgs && iter%5==0{
+
+            }
+        }
 
     }
+}
+
+fn image_path_to_tensor(image_path:Path,width:usize,height:usize)-> Tensor{
+    let original_image = image::io::Reader::open(&image_path)?
+            .decode()
+            .map_err(candle::Error::wrap)?;
+    let data = original_image
+                .resize_exact(
+                    width as u32,
+                    height as u32,
+                    image::imageops::FilterType::Triangle,
+                )
+                .to_rgb8()
+                .into_raw();
+    Tensor::from_vec(data, (width, height, 3), &Device::Cpu)?.permute((1, 2, 0))?
+}
+
+fn main(height:usize,
+    width:usize,
+    num_points:isize,
+    save_imgs:bool,
+    img_path:Path,
+    iterations:isize,
+    lr:f32,
+){
+    height = height.unwrap_or(256);
+    width = width.unwrap_or(256);
+    num_points = num_points.unwrap_or(100000);
+    iterations = iterations.unwrap_or(1000);
+    lr = lr.unwrap_or(0.01);
+    if Some(img_path){
+        let gt_image = image_path_to_tensor(image_path, width, height);
+    } //else {
+        //Vois pas comment accéder à certaines valeurs d'un torseurs pour les modifiés
+    // }
+    let mut trainer = Trainer::__init__(&mut self, gt_image, num_points);
+    trainer.train(iterations, lr, save_imgs);
+    
 }
