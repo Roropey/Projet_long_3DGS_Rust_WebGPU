@@ -1,0 +1,9 @@
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcocoa_foundation-ff49a02086320114.rmeta: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/foundation.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcocoa_foundation-ff49a02086320114.rlib: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/foundation.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/cocoa_foundation-ff49a02086320114.d: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/foundation.rs
+
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/lib.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/base.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cocoa-foundation-0.1.2/src/foundation.rs:

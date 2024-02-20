@@ -1,0 +1,10 @@
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/mon code /target/release/deps/liblog-d5c6a9058f796d8e.rmeta: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/macros.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/serde.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/__private_api.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/mon code /target/release/deps/liblog-d5c6a9058f796d8e.rlib: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/macros.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/serde.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/__private_api.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/mon code /target/release/deps/log-d5c6a9058f796d8e.d: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/macros.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/serde.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/__private_api.rs
+
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/lib.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/macros.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/serde.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/log-0.4.20/src/__private_api.rs:
