@@ -31,9 +31,9 @@ impl Trainer {
     pub fn __init__(
         &mut self,
         gt_image: Tensor,
-        num_points: isize // When use, put Some(...), if default value, put None
+        num_points: Option<isize> // When use, put Some(...), if default value, put None
     )-> Self{
-        num_points = num_points.unwrap_or(2000);
+        let num_points = num_points.unwrap_or(2000);
         self.device = Device::new_cuda(0)?;
         self.gt_image = gt_image.to_device(&self.device);
         self.num_points = num_points;
@@ -98,13 +98,13 @@ impl Trainer {
     }
 
     fn train(&mut self,
-        iterations: isize,// When use, put Some(...), if default value, put None
-        lr: f32,// When use, put Some(...), if default value, put None
-        save_imgs: bool,// When use, put Some(...), if default value, put None
+        iterations: Option<isize>,// When use, put Some(...), if default value, put None
+        lr: Option<f32>,// When use, put Some(...), if default value, put None
+        save_imgs: Option<bool>,// When use, put Some(...), if default value, put None
     ){
-        iterations = iterations.unwrap_or(1000);
-        lr = lr.unwrap_or(0.01);
-        save_imgs = save_imgs.unwrap_or(False);
+        let iterations = iterations.unwrap_or(1000);
+        let lr = lr.unwrap_or(0.01);
+        let save_imgs = save_imgs.unwrap_or(False);
         let mut adam_optimize = AdamW::new(
             vec![
                 candle::Var::from_tensor(&self.rgbs),
@@ -151,12 +151,11 @@ impl Trainer {
                 self.background,
             );
             //cuda.synchronize ... Pas trouver comment faire
-            let loss = mse_loss(out_img,self.gt_image);
+            let loss = mse_loss(out_img,&self.gt_image);
 
             adam_optimize.zero_grad()?;
             
             adam_optimize.backward_step(&loss)?;
-            adam_optimize.step()?;
             println!("Iteraion {}/{}, Loss {}",iter+1,iterations,loss.item());
             if save_imgs && iter%5==0{
 
@@ -181,25 +180,25 @@ fn image_path_to_tensor(image_path:Path,width:usize,height:usize)-> Tensor{
     Tensor::from_vec(data, (width, height, 3), &Device::Cpu)?.permute((1, 2, 0))?
 }
 
-fn main(height:usize,
-    width:usize,
-    num_points:isize,
-    save_imgs:bool,
-    img_path:Path,
-    iterations:isize,
-    lr:f32,
+fn main(height:Option<usize>,
+    width:Option<usize>,
+    num_points:Option<isize>,
+    save_imgs:Option<bool>,
+    img_path:Option<Path>,
+    iterations:Option<isize>,
+    lr:Option<f32>,
 ){
-    height = height.unwrap_or(256);
-    width = width.unwrap_or(256);
-    num_points = num_points.unwrap_or(100000);
-    iterations = iterations.unwrap_or(1000);
-    lr = lr.unwrap_or(0.01);
+    let height = height.unwrap_or(256);
+    let width = width.unwrap_or(256);
+    let num_points = num_points.unwrap_or(100000);
+    let iterations = iterations.unwrap_or(1000);
+    let lr = lr.unwrap_or(0.01);
     if Some(img_path){
         let gt_image = image_path_to_tensor(image_path, width, height);
     } //else {
         //Vois pas comment accéder à certaines valeurs d'un torseurs pour les modifiés
     // }
-    let mut trainer = Trainer::__init__(&mut self, gt_image, num_points);
-    trainer.train(iterations, lr, save_imgs);
+    let mut trainer = Trainer::__init__(&mut self, gt_image, Some(num_points));
+    trainer.train(Some(iterations), Some(lr), Some(save_imgs));
     
 }

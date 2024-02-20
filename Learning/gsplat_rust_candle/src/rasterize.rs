@@ -14,8 +14,8 @@ fn rasterize_gaussians(
     opacity: Tensor,
     img_height: isize,
     img_width: isize,
-    background: Tensor, // When use, put Some(...) and not use, put None
-    return_alpha: bool // When use, put Some(...), if not, put None
+    background: Option<Tensor>, // When use, put Some(...) and not use, put None
+    return_alpha: Option<bool> // When use, put Some(...), if not, put None
 ) -> Tensor {
     /*Rasterizes 2D gaussians by sorting and binning gaussian intersections for each tile and returns an N-dimensional output using alpha-compositing.
 
@@ -44,7 +44,8 @@ fn rasterize_gaussians(
     if colors.dtype() == u8 {
         colors = colors.float() / 255; // Pas sûr que ça fonctionne
     }
-    background = background.unwrap_or(Tensor::ones(colors.shape().dims()[colors.shape().rank()-1], f32, colors.device()));
+    let background = background.unwrap_or(Tensor::ones(colors.shape().dims()[colors.shape().rank()-1], f32, colors.device()));
+    let return_alpha = return_alpha.unwrap_or(false);
     assert!(background.shape().dims()[0] == colors.shape().dims()[colors.shape().rank()-1], "Incorrect shape of background color tensor, expected shape {}",colors.shape().dims()[colors.shape().rank()-1]);
     assert!(xys.shape().rank()==2 && xys.shape().dims()[1] != 2, "xys, must have dimensions (N,2)");
     assert!(colors.shape().rank() == 2, "colors must have dimensions (N,D)");
@@ -58,8 +59,8 @@ fn rasterize_gaussians(
         opacity.contiguous(),
         img_height,
         img_width,
-        background.contiguous(),
-        return_alpha,
+        Some(background.contiguous()),
+        Some(return_alpha),
     )
     // Besoin de définir la classe qui se base sur torch.autograd.Fonction...
     
