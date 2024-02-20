@@ -1,0 +1,9 @@
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcore_graphics_types-7590b47dd43a5b08.rmeta: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/geometry.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcore_graphics_types-7590b47dd43a5b08.rlib: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/geometry.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/core_graphics_types-7590b47dd43a5b08.d: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/base.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/geometry.rs
+
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/lib.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/base.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/core-graphics-types-0.1.2/src/geometry.rs:

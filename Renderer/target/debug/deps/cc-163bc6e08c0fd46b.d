@@ -1,0 +1,10 @@
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcc-163bc6e08c0fd46b.rmeta: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe/unix.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/windows_registry.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/libcc-163bc6e08c0fd46b.rlib: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe/unix.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/windows_registry.rs
+
+/Users/clementinegrethen/Documents/Enseeiht/enseeiht 3rd year/Projet long/splatter-main/target/debug/deps/cc-163bc6e08c0fd46b.d: /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/lib.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe/unix.rs /Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/windows_registry.rs
+
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/lib.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/os_pipe/unix.rs:
+/Users/clementinegrethen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/cc-1.0.83/src/windows_registry.rs:
