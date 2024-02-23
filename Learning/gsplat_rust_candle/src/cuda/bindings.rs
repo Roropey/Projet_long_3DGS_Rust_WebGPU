@@ -152,6 +152,7 @@ impl ProjectGaussian {
                 let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
                 let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
                 let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                
                 Ok((dst_cov3d, Shape::from_dims(&[num_points,6]),
                     dst_xys_d, Shape::from_dims(&[num_points,2]),
                     dst_depth, Shape::from_dims(&[num_points]),
@@ -170,4 +171,38 @@ impl CustomOp1 for ProjectGaussians {
     }
 
     //après avoir testé customop.rs et fwd : IMPLEMENTER BACKWARD
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    
+    #[test]
+    fn test_func_binding(){
+        let dev = candle::cuda_backend::CudaDevice::new(0)?;
+        let func = dev.get_or_load_func("project_gaussians_forward", cuda_kernels::GSPLATKERNELS)?;
+        match func {
+            Ok(_) => assert!(true),
+            Err(e) => panic!("Expected successful loading, but got error: {:?}", e),
+        }
+    }
+    // unsafe fn launch(self, cfg: LaunchConfig, params: Params) -> Result<(), result::DriverError>;
+    #[test]
+    fn dummy_launch(){
+        let dev = candle::cuda_backend::CudaDevice::new(0)?;
+        let func = dev.get_or_load_func("project_gaussians_forward", cuda_kernels::GSPLATKERNELS)?;
+        let params = (0,0,0,0,0,0,0,0,0,0,0,0,0);
+        let cfg = LaunchConfig {
+            grid_dim: (0, 0, 0),
+            block_dim: (0, 0, 0),
+            shared_mem_bytes: 0,
+        };
+        let res = unsafe { func.launch(cfg, params) }.w()?;
+        match res {
+            Ok(_) => assert!(true),
+            Err(e) => panic!("Expected successful launch, but got error: {:?}", e),
+        }
+    }   
+    
+
 }

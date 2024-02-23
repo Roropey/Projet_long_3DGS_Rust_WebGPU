@@ -1,3 +1,7 @@
+use candle::Tensor;
+use candle::Result;
+use candle::Storage
+
 /// Projette des gaussiennes 3D dans un espace 2D en utilisant les paramètres spécifiés.
 ///
 /// Cette fonction prend en compte un ensemble de gaussiennes définies par leurs moyennes, échelles,
@@ -10,7 +14,7 @@
 /// * `means3d` - Un tensor représentant les positions des gaussiennes dans l'espace 3D.
 /// * `scales` - Un tensor représentant les échelles des gaussiennes.
 /// * `glob_scale` - Un facteur d'échelle global appliqué à toutes les gaussiennes.
-/// * `quats` - Un tensor contenant les quaternions.
+/// * `quats` - Un tensor contenant les quaternions (w,x,y,z) pour la rotation des splats.
 /// * `viewmat` - La matrice de vue pour la projection.
 /// * `projmat` - La matrice de projection pour la projection.
 /// * `fx`, `fy` - Les composantes focales de la caméra.
@@ -80,7 +84,7 @@ pub fn ProjectGaussians(num_points : int,
     let c = ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh,viewmat,projmat};
     
     //reecriture de la fonction apply_op1_arc de tensor.rs pour bypass le fonctionnement normal
-    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd((means3d.storage())?,(scales.storage())?,(quats.storage())?,(viewmat.storage())?,(projmat.storage())?);
+    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd((means3d.storage())?,(scales.storage())?,(quats.storage())?,(viewmat.storage())?,(projmat.storage())?)?;
 
    
     let tensor_cov3d = from_storage(storage_cov3d, shape_cov3d);
@@ -125,4 +129,133 @@ pub fn ProjectGaussians(num_points : int,
     
     
     Ok((cov3d,xys,depth,radii,conics,compensation,num_tiles_hit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_for_project() -> (candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor,candle::Tensor){
+        
+        let means3d = candle::Tensor::from_data(&[1.0,0.0,0.0,0.0,1.0,0.0], &candle::Shape::from_dims(&[2,3]));
+        //means3d = [[1.0,0.0,0.0],
+        //           [0.0,1.0,0.0]]
+        
+        let scales = candle::Tensor::from_data(&[1.0,1.0,1.0,1.0,1.0,1.0], &candle::Shape::from_dims(&[2,3]));
+        //scales = [[1.0,1.0,1.0],
+        //          [1.0,1.0,1.0]]
+        
+        let quats = candle::Tensor::from_data(&[1.0,1.0,1.0,1.0,0.0,0.0,0.0,0.0], &candle::Shape::from_dims(&[2,4]));
+        //quats = [[1.0,1.0,1.0,1.0],
+        //         [0.0,0.0,0.0,0.0]]
+        
+        let viewmat = candle::Tensor::from_data(&[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0], &candle::Shape::from_dims(&[4,4]));
+        //viewmat = [[1.0,0.0,0.0,0.0],
+        //           [0.0,1.0,0.0,0.0],
+        //           [0.0,0.0,1.0,0.0],
+        //           [0.0,0.0,0.0,1.0]]
+      
+        let projmat = candle::Tensor::from_data(&[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0], &candle::Shape::from_dims(&[4,4]));
+        //projmat = [[1.0,0.0,0.0,0.0],
+        //           [0.0,1.0,0.0,0.0],
+        //           [0.0,0.0,1.0,0.0],
+        //           [0.0,0.0,0.0,1.0]]
+        
+        let glob_scale = 1.0;
+        let fx = 1.0;
+        let fy = 1.0;
+        let cx = 1.0;
+        let cy = 1.0;
+        let img_height = 1;
+        let img_width = 1;
+        let tile_bounds = (1,1,1);
+        let clip_thresh = 1.0;
+        (means3d,scales,quats,viewmat,projmat,glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh)
+    }
+
+
+    fn projection_matrix(fx: float, fy: float, W: uint, H: uint, n: float, f: float) -> candle::Tensor{
+        let projmat = candle::Tensor::from_data(&[2.0 * fx / W, 0.0, 0.0, 0.0, 0.0, 2.0 * fy / H, 0.0, 0.0, 0.0, 0.0, (f + n) / (f - n), -2.0 * f * n / (f - n), 0.0, 0.0, 1.0, 0.0], &candle::Shape::from_dims(&[4,4]));
+        projmat
+    }
+    
+    fn check_close(a: &candle::Tensor, b: &candle::Tensor, atol: float, rtol: float){
+        let diff = a.sub(b);
+        let diff = diff.abs();
+        let diff = diff.detach();
+        let max = diff.max();
+        let mean = diff.mean();
+        assert!(max <= atol,
+                "La valeur max de la différence est supérieure à la tolérance : max = {}, atol = {}", 
+                max, 
+                atol);
+        assert!(mean <= rtol,
+                "La valeur moyenne de la différence est supérieure à la tolérance : mean = {}, rtol = {}", 
+                mean, 
+                rtol);
+
+    }
+
+    #[test]
+    fn test_project_gaussians(){
+        let (means3d,scales,quats,viewmat,projmat,glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh) = setup_for_project();
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(num_points, means3d, scales, glob_scale, quats, viewmat, projmat, fx, fy, cx, cy, img_height, img_width, tile_bounds, clip_thresh);
+        
+    }
+
+    #[test]
+    fn full_test_project_gaussians_forward(){
+        let num_points = 100;
+        let means3d = candle::Tensor::randn((num_points, 3), &candle::Device::cuda(0), true);
+        let scales = candle::Tensor::rand((num_points, 3), &candle::Device::cuda(0)) + 0.2;
+        let glob_scale = 1.0;
+        let quats = candle::Tensor::randn((num_points, 4), &candle::Device::cuda(0));
+        let quats = quats / quats.norm(candle::Norm::L2, &[1], true);
+        let H = 512;
+        let W = 512;
+        let cx = W / 2;
+        let cy = H / 2;
+        let fx = W / 2;
+        let fy = W / 2;
+        let clip_thresh = 0.01;
+        let viewmat = candle::Tensor::from_data(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle::Shape::from_dims(&[4,4]));
+        let projmat = projection_matrix(fx, fy, W, H);
+        let fullmat = projmat.matmul(&viewmat);
+        let BLOCK_X = 16;
+        let BLOCK_Y = 16;
+        let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(num_points, means3d, scales, glob_scale, quats, viewmat, projmat, fx, fy, cx, cy, img_height, img_width, tile_bounds, clip_thresh);
+        let masks = num_tiles_hit.gt(0);
+        
+        //Ici il faudrait reussir a invoquer le code python
+        let (_cov3d, _xys, _depths, _radii, _conics, _compensation, _num_tiles_hit, _masks) = _torch_impl::project_gaussians_forward(means3d, scales, glob_scale, quats, viewmat, fullmat, (fx, fy, cx, cy), (W, H), tile_bounds, clip_thresh);
+        
+        check_close(&masks, &_masks, 1e-5, 1e-5);
+        check_close(&cov3d, &_cov3d, 1e-5, 1e-5);
+        check_close(&xys, &_xys, 1e-5, 1e-5);
+        check_close(&depths, &_depths, 1e-5, 1e-5);
+        check_close(&radii, &_radii, 1e-5, 1e-5);
+        check_close(&conics, &_conics, 1e-5, 1e-5);
+        check_close(&compensation, &_compensation, 1e-5, 1e-5);
+        check_close(&num_tiles_hit, &_num_tiles_hit, 1e-5, 1e-5);
+    }
+
+    #[test]
+    fn test_dummy_fwd() -> Result<(), Box<dyn std::error::Error>>{
+        let means3d = candle::Tensor::randn((100, 3), &candle::Device::cuda(0), true);
+        let scales = candle::Tensor::rand((100, 3), &candle::Device::cuda(0)) + 0.2;
+        let glob_scale = 1.0;
+        let quats = candle::Tensor::randn((100, 4), &candle::Device::cuda(0));
+        let quats = quats / quats.norm(candle::Norm::L2, &[1], true);
+        let viewmat = candle::Tensor::from_data(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle::Shape::from_dims(&[4,4]));
+        let projmat = projection_matrix(1.0, 1.0, 512, 512);
+        let fullmat = projmat.matmul(&viewmat);
+        let BLOCK_X = 16;
+        let BLOCK_Y = 16;
+        let tile_bounds = ((512 + BLOCK_X - 1) / BLOCK_X, (512 + BLOCK_Y - 1) / BLOCK_Y, 1);
+        let c = ProjectGaussians{glob_scale,1.0,1.0,1.0,1.0,512,512,(1,1,1),0.01,viewmat,projmat};
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = c.dummy_fwd(means3d.storage()?, scales.storage()?, quats.storage()?, viewmat.storage()?, projmat.storage()?)?;
+        0k(())
+    }
+
 }
