@@ -77,7 +77,26 @@ impl ProjectGaussian {
             let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
             let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
             
-            let params = (&slice_m3D,&slice_sc,self.glob_scale,&slice_q,&self.viewmat,&self.projmat,[self.fx,self.fy,self.cx,self.cy],self.img_height,self.img_width,[self.tile_bounds.0,self.tile_bounds.1,self.tile_bounds.2],self.clip_thresh,&dst_cov3d,&dst_xys_d,&dst_depth,&dst_radii,&dst_conics,&dst_compensation,&dst_num_tiles_hit);
+            let params = (
+                &slice_m3D,
+                &slice_sc,
+                self.glob_scale,
+                &slice_q,
+                &self.viewmat,
+                &self.projmat,
+                [self.fx,self.fy,self.cx,self.cy],
+                self.img_height,self.img_width,
+                [self.tile_bounds.0,self.tile_bounds.1,self.tile_bounds.2],
+                self.clip_thresh,
+                &dst_cov3d,
+                &dst_xys_d,
+                &dst_depth,
+                &dst_radii,
+                &dst_conics,
+                &dst_compensation,
+                &dst_num_tiles_hit
+            );
+
             let N_THREADS = 256; //TODO : voir si on peut le mettre en argument
             let N_BLOCKS = (num_points + N_THREADS - 1) / N_THREADS;
             let cfg = LaunchConfig {
@@ -105,10 +124,50 @@ impl ProjectGaussian {
                 dst_num_tiles_hit, Shape::from_dims(&[num_points])))
                  
         }
+
+        //dummy fwd qui va renvoyer des tenseurs à 0
+        fn dummy_fwd(
+            &self,
+            means3d_storage: &candle::CudaStorage,
+            means3d_layout: &Layout,
+            scale_storage: &candle::CudaStorage,
+            scale_layout: &Layout,
+            quats_storage: &candle::CudaStorage,
+            quats_layout: &Layout,
+        ) -> Result<(candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,
+            candle::CudaStorage, Shape,)>
+            {
+                let num_points = means3d_layout.shape().dims2()?;
+                let dev = means3d_storage.device().clone();
+                let dst_cov3d = unsafe { dev.alloc::<f32>(num_points*6) }.w()?;
+                let dst_xys_d = unsafe { dev.alloc::<f32>(num_points*2) }.w()?;
+                let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
+                let dst radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
+                let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
+                let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                Ok((dst_cov3d, Shape::from_dims(&[num_points,6]),
+                    dst_xys_d, Shape::from_dims(&[num_points,2]),
+                    dst_depth, Shape::from_dims(&[num_points]),
+                    dst_radii, Shape::from_dims(&[num_points]),
+                    dst_conics, Shape::from_dims(&[num_points,3]),
+                    dst_compensation, Shape::from_dims(&[num_points]),
+                    dst_num_tiles_hit, Shape::from_dims(&[num_points])))
+            
+            }
+        
 }
 
 impl CustomOp1 for ProjectGaussians {
     fn name(&self) -> &'static str {
         "project-3d-gaussians"
     }
+
+    //après avoir testé customop.rs et fwd : IMPLEMENTER BACKWARD
 }
