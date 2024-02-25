@@ -7,9 +7,13 @@ edition = "2021"
 
 [dependencies]
 candle-core = { git = "https://github.com/jeanfelixM/candle.git", features = ["cuda"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.4.0" }
 
 
 [build-dependencies]
 cxx-build = "1.0"
 bindgen_cuda = "0.1.1"
 anyhow = { version = "1", features = ["backtrace"] }
+
+[features]
+cuda = ["candle-core/cuda"]
