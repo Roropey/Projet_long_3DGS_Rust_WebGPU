@@ -1,17 +1,34 @@
-//used by cargo to compile the rust code with c++
+#![allow(unused)]
+use anyhow::{Context, Result};
+use std::io::Write;
+use std::path::PathBuf;
+struct KernelDirectories {
+    kernel_glob: &'static str,
+    rust_target: &'static str,
+    include_dirs: &'static [&'static str],
+}
 
-fn main() {
-    cxx_build::bridge("src/cuda/bindings.rs")
-        .file("src/cuda/csrc/bindings.cu")
-        .cuda(true)
-        .flag_if_supported("-std=c++20")
-        .compile("gsplat_rust_candle");
+const KERNEL_DIRS: [KernelDirectories; 1] = [KernelDirectories {
+    kernel_glob: "src/cuda/kernels/*.cu",
+    rust_target: "src/cuda/cuda_kernels.rs",
+    include_dirs: &[],
+}];
 
+fn main() -> Result<()> {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=cuda/kernels/forward.cu");
+    println!("cargo:rerun-if-changed=cuda/kernels/backward.cu");
+    println!("cargo:rerun-if-changed=cuda/kernels/forward.cuh");
+    println!("cargo:rerun-if-changed=cuda/kernels/backward.cuh");
 
-    println!("cargo:rustc-link-lib=cuda");
-    println!("cargo:rustc-link-lib=torch");
-    
-    println!("cargo:rerun-if-changed=src/cuda/bindings.rs");
-    println!("cargo:rerun-if-changed=src/cuda/csrc/bindings.cu");
-    println!("cargo:rerun-if-changed=src/cuda/csrc/bindings.h");
+    #[cfg(feature = "cuda")]
+    {
+        for kdir in KERNEL_DIRS.iter() {
+            let builder = bindgen_cuda::Builder::default().kernel_paths_glob(kdir.kernel_glob);
+            println!("cargo:info={builder:?}");
+            let bindings = builder.build_ptx().unwrap();
+            bindings.write(kdir.rust_target).unwrap()
+        }
+    }
+    Ok(())
 }
