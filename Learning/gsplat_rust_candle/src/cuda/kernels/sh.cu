@@ -208,8 +208,7 @@ __device__ void sh_coeffs_to_color_vjp(
         v_coeffs[24 * CHANNELS + c] = v24 * v_colors[c];
     }
 }
-
-__global__ void compute_sh_forward_kernel(
+extern "C" __global__ void compute_sh_forward_kernel(
     const unsigned num_points,
     const unsigned degree,
     const unsigned degrees_to_use,
@@ -230,8 +229,7 @@ __global__ void compute_sh_forward_kernel(
         degrees_to_use, viewdirs[idx], &(coeffs[idx_sh]), &(colors[idx_col])
     );
 }
-
-__global__ void compute_sh_backward_kernel(
+extern "C" __global__ void compute_sh_backward_kernel(
     const unsigned num_points,
     const unsigned degree,
     const unsigned degrees_to_use,

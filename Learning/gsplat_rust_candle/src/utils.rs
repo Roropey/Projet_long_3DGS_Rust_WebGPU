@@ -1,7 +1,6 @@
 use candle::{CpuStorage, Device, Layout, Shape, Tensor};
 use candle_core as candle;
 
-use cuda;
 
 // Fonction copié sur https://github.com/huggingface/candle/pull/1389/files
 // Argsort pour tensor à 1 dimension... A voir si ça marche dans notre cas
@@ -52,7 +51,7 @@ impl candle::CustomOp1 for ArgSort {
             )
         }
         // Récupère device
-        let dev = storage.device().clone();
+        let dev = storage.device.clone();
         //Récupère le slice mais en cuda
         let cuda_slice = storage.as_cuda_slice::<f32>()?;
         //Copie le slice sur le host (GPU -> CPU)
@@ -159,7 +158,7 @@ pub fn compute_cov2d_bounds(
     */
 
 
-    assert!(cov2d.shape().dims()[cov2d.shape().rank()-1]==3, "Execpected Expected input cov2d to be of shape (*batch, 3) (upper triangular values), but got {}",cov2d.shape());
+    assert!(cov2d.shape().dims()[cov2d.shape().rank()-1]==3, "Execpected Expected input cov2d to be of shape (*batch, 3) (upper triangular values)");
     let num_pts = cov2d.shape().dims()[0];
     assert!(num_pts>0);
     cuda::compute_cov2d_bounds(num_pts,cov2d.contiguous())
@@ -182,8 +181,8 @@ pub fn compute_cumulative_intersects(
         - **num_intersects** (int): total number of tile intersections.
         - **cum_tiles_hit** (candle::Tensor): a tensor of cumulated intersections (used for sorting).
     */
-    let cum_tiles_hit = num_tiles_hit.cumsum(0);
-    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.shape().dims()[0]-1).unwrap().to_vec0::<isize>().unwrap();
+    let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
+    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.shape().dims()[0]-1).unwrap().to_vec0::<i64>().unwrap() as isize;
     // suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     (num_intersects,cum_tiles_hit)
 }
@@ -225,10 +224,10 @@ pub fn bin_and_sort_gaussians(
     let (isect_ids, gaussian_ids )= map_gaussian_to_intersects(
         num_points, num_intersects, xys, depths, radii, cum_tiles_hit, tile_bounds
     );
-    let sorted_indices = isect_ids.apply_op1(ArgSort)?;
-    let isect_ids_sorted = isect_ids.gather(&sorted_indices,0);
-    //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // Pas encore trouver comment reproduire le sort, pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
-    let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0);
+    let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
+    let isect_ids_sorted = isect_ids.gather(&sorted_indices,0).unwrap();
+    //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
+    let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0).unwrap();
     let tile_bins = get_tile_bin_edges(num_intersects, isect_ids_sorted, tile_bounds);
     (isect_ids, gaussian_ids, isect_ids_sorted, gaussian_ids_sorted, tile_bins)
 }

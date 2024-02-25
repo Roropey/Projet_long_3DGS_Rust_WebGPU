@@ -75,7 +75,7 @@ impl ProjectGaussian {
             let dst_cov3d = unsafe { dev.alloc::<f32>(num_points*6) }.w()?;
             let dst_xys_d = unsafe { dev.alloc::<f32>(num_points*2) }.w()?;
             let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-            let dst radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+            let dst_radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
             let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
             let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
             let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
@@ -151,7 +151,7 @@ impl ProjectGaussian {
                 let dst_cov3d = unsafe { dev.alloc::<f32>(num_points*6) }.w()?;
                 let dst_xys_d = unsafe { dev.alloc::<f32>(num_points*2) }.w()?;
                 let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-                let dst radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                let dst_radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
                 let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
                 let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
                 let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;

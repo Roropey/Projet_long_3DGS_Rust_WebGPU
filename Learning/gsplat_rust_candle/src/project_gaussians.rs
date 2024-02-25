@@ -1,12 +1,13 @@
 use candle::Tensor;
 use candle_core as candle;
 
-use cuda;
+mod cuda::customop.rs;
+
 
 fn project_gaussian(
     means3d: Tensor,
     scales: Tensor,
-    glob_scales: f32,
+    glob_scale: f32,
     quats: Tensor,
     viewmat: Tensor,
     projmat: Tensor,
@@ -17,7 +18,7 @@ fn project_gaussian(
     img_height: isize,
     img_width: isize,
     tile_bounds: (isize,isize,isize),
-    clip_thresh: f32 // Put value in Some(...), if none, put None
+    clip_thresh: Option<f32> // Put value in Some(...), if none, put None
 ) -> (Tensor,Tensor,Tensor,Tensor,Tensor,Tensor,Tensor){
     /*This function projects 3D gaussians to 2D using the EWA splatting method for gaussian splatting.
 
@@ -51,7 +52,7 @@ fn project_gaussian(
         - **num_tiles_hit** (Tensor): number of tiles hit per gaussian.
         - **cov3d** (Tensor): 3D covariances.
     */
-    clip_thresh = clip_thresh.unwrap_or(0.01);
+    let clip_thresh = clip_thresh.unwrap_or(0.01);
     _ProjectGaussians.apply(
         means3d.contiguous(),
         scales.contiguous(),
