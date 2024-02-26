@@ -2,7 +2,7 @@ use candle::{CustomOp2, Tensor};
 use candle_core as candle;
 
 
-mod utils;
+use crate::utils;
 
 fn rasterize_gaussians(
     xys: Tensor,

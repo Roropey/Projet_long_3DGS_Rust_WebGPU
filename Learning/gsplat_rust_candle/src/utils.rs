@@ -1,6 +1,11 @@
-use candle::{CpuStorage, Device, Layout, Shape, Tensor};
+use candle::{CpuStorage, Device, Storage, Layout, Shape, Tensor, D, Result, tensor::from_storage, op::BackpropOp};
+use candle::backend::{BackendDevice,BackendStorage};
+use candle_core::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig};
+use candle_core::cuda_backend::{WrapErr,CudaDevice};
 use candle_core as candle;
-
+use std::ops::Not;
+#[cfg(feature = "cuda")]
+use crate::cuda::cuda_kernels::{FORWARD, BINDINGS};
 
 // Fonction copié sur https://github.com/huggingface/candle/pull/1389/files
 // Argsort pour tensor à 1 dimension... A voir si ça marche dans notre cas
@@ -24,7 +29,7 @@ impl candle::CustomOp1 for ArgSort {
             )
         }
 
-        let slice = storage.as_slice::<f32>()?;
+        let slice = storage.as_slice::<f32>().unwrap();
         // Vérification contiguous
         let src = match layout.contiguous_offsets() {
             None => candle::bail!("input has to be contiguous"),
@@ -53,7 +58,7 @@ impl candle::CustomOp1 for ArgSort {
         // Récupère device
         let dev = storage.device.clone();
         //Récupère le slice mais en cuda
-        let cuda_slice = storage.as_cuda_slice::<f32>()?;
+        let cuda_slice = storage.as_cuda_slice::<f32>().unwrap();
         //Copie le slice sur le host (GPU -> CPU)
         let slice = dev.sync_reclaim(cuda_slice.clone()).unwrap();
         // Vérification contiguous
@@ -70,7 +75,12 @@ impl candle::CustomOp1 for ArgSort {
     }
 }
 
-
+fn to_cuda_storage(storage: &Storage,layout : &Layout) -> Result<candle_core::CudaStorage> {
+    match storage {
+        Storage::Cuda(s) => Ok(s.try_clone(layout).unwrap()),
+        _ => unreachable!(),
+    }
+}
 
 pub fn map_gaussian_to_intersects(
     num_points:isize,
@@ -80,7 +90,7 @@ pub fn map_gaussian_to_intersects(
     radii:Tensor,
     cum_tiles_hit:Tensor,
     tile_bounds:(isize,isize,isize)
-) -> (Tensor,Tensor){
+) -> Result<(Tensor,Tensor)>{
     /* Map each gaussian intersection to a unique tile ID and depth value for sorting.
 
     Note:
@@ -101,16 +111,74 @@ pub fn map_gaussian_to_intersects(
         - **isect_ids** (candle::Tensor): unique IDs for each gaussian in the form (tile | depth id).
         - **gaussian_ids** (candle::Tensor): Tensor that maps isect_ids back to cum_tiles_hit.
     */
-    let (isect_ids, gaussian_ids) = cuda::map_gaussian_to_intersects(
+    let (xys_storage,xys_layout) = xys.storage_and_layout();
+    let xys_storage: candle::CudaStorage = to_cuda_storage(&xys_storage, &xys_layout).unwrap();
+    let (depths_storage,depths_layout) = depths.storage_and_layout();
+    let depths_storage: candle::CudaStorage = to_cuda_storage(&depths_storage, &depths_layout).unwrap();
+    let (radii_storage,radii_layout) = radii.storage_and_layout();
+    let radii_storage: candle::CudaStorage = to_cuda_storage(&radii_storage, &radii_layout).unwrap();
+    let (cum_tiles_hit_storage,cum_tiles_hit_layout) = cum_tiles_hit.storage_and_layout();
+    let cum_tiles_hit_storage: candle::CudaStorage = to_cuda_storage(&cum_tiles_hit_storage, &cum_tiles_hit_layout).unwrap();
+    let dev_xys = xys_storage.device().clone();
+    let dev_depths = depths_storage.device().clone();
+    let dev_radii = radii_storage.device().clone();
+    let dev_cum_tiles_hit = cum_tiles_hit_storage.device().clone();
+    if (dev_xys.same_device(&dev_depths) && dev_xys.same_device(&dev_radii) && dev_xys.same_device(&dev_cum_tiles_hit)).not() {
+        candle_core::bail!("all inputs must be on the same device")
+        
+    }
+    let dev = dev_xys;
+
+    let slice_xys = xys_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_xys = match xys_layout.contiguous_offsets() {
+        None => candle_core::bail!("xys input has to be contiguous"),
+        Some((o1, o2)) => slice_xys.slice(o1..o2),
+    };
+
+    let slice_depths = depths_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_depths = match depths_layout.contiguous_offsets() {
+        None => candle_core::bail!("depths input has to be contiguous"),
+        Some((o1, o2)) => slice_depths.slice(o1..o2),
+    };
+
+    let slice_radii = radii_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_radii = match radii_layout.contiguous_offsets() {
+        None => candle_core::bail!("radii input has to be contiguous"),
+        Some((o1, o2)) => slice_radii.slice(o1..o2),
+    };
+
+    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_cum_tiles_hit = match cum_tiles_hit_layout.contiguous_offsets() {
+        None => candle_core::bail!("cum_tiles_hit input has to be contiguous"),
+        Some((o1, o2)) => slice_cum_tiles_hit.slice(o1..o2),
+    };
+
+    let func = dev.get_or_load_func("map_gaussian_to_intersects",FORWARD).unwrap();
+    let dst_isect_ids = unsafe { dev.alloc::<i64>(num_intersects as usize) }.w().unwrap();
+    let dst_gaussian_ids = unsafe { dev.alloc::<i64>(num_intersects as usize) }.w().unwrap();
+    let params =(
         num_points,
-        num_intersects,
-        xys.contiguous(),
-        depths.contiguous(),
-        radii.contiguous(),
-        cum_tiles_hit.contiguous(),
-        tile_bounds
+        &slice_xys,
+        &slice_depths,
+        &slice_radii,
+        &slice_cum_tiles_hit,
+        tile_bounds,
+        &dst_isect_ids,
+        &dst_gaussian_ids
     );
-    (isect_ids, gaussian_ids)
+    let n_threads = 1024;
+    let nb_block = (num_points + n_threads - 1 )/n_threads ;
+    let cfg = LaunchConfig{
+        grid_dim:(nb_block as u32,1,1),
+        block_dim:(n_threads as u32,1,1),
+        shared_mem_bytes: 0,
+    };
+    unsafe { func.launch(cfg, params) }.w().unwrap();
+    let isect_ids_storage = candle::CudaStorage::wrap_cuda_slice(dst_isect_ids,dev);
+    let gaussian_ids_storage = candle::CudaStorage::wrap_cuda_slice(dst_gaussian_ids,dev);
+    let isect_ids = from_storage(candle_core::Storage::Cuda(isect_ids_storage),Shape::from_dims(&[num_intersects as usize]), BackpropOp::none(),false);
+    let gaussian_ids = from_storage(candle_core::Storage::Cuda(gaussian_ids_storage),Shape::from_dims(&[num_intersects as usize]), BackpropOp::none(),false);
+    Ok((isect_ids, gaussian_ids))
 
 }
 
@@ -118,7 +186,7 @@ pub fn get_tile_bin_edges(
     num_intersects:isize,
     isect_ids_sorted: Tensor,
     tile_bounds:(isize,isize,isize)
-) -> Tensor {
+) -> Result<Tensor> {
     /* Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
 
     Expects that intersection IDs are sorted by increasing tile ID.
@@ -138,12 +206,39 @@ pub fn get_tile_bin_edges(
 
         - **tile_bins** (candle::Tensor): range of gaussians IDs hit per tile.
     */
-    cuda::get_tile_bin_edges(num_intersects,isect_ids_sorted.contiguous(),tile_bounds)
+    let (isect_ids_sorted_storage,isect_ids_sorted_layout) = isect_ids_sorted.storage_and_layout();
+    let isect_ids_sorted_storage: candle::CudaStorage = to_cuda_storage(&isect_ids_sorted_storage, &isect_ids_sorted_layout).unwrap();
+    let dev = isect_ids_sorted_storage.device().clone();
+    let slice = isect_ids_sorted_storage.as_cuda_slice::<i64>().unwrap();
+    let slice = match isect_ids_sorted_layout.contiguous_offsets() {
+        None => candle_core::bail!("isect_ids_sorted input has to be contiguous"),
+        Some((o1, o2)) => slice.slice(o1..o2),
+    };
+    let func = dev.get_or_load_func("get_tile_bin_edges",FORWARD).unwrap();
+    let (tile_x,tile_y,_) = tile_bounds;
+    let dst_tile_bins = unsafe { dev.alloc::<i64>((tile_x*tile_y*2) as usize) }.w().unwrap();
+    let params = (num_intersects,&slice,&dst_tile_bins);
+    let n_threads = 1024;
+    let nb_block = (num_intersects + n_threads - 1 )/n_threads ;
+    let cfg = LaunchConfig{
+        grid_dim:(nb_block as u32,1,1),
+        block_dim:(n_threads as u32,1,1),
+        shared_mem_bytes: 0,
+    };
+    unsafe { func.launch(cfg, params) }.w().unwrap();
+    let tile_bins_storage = candle::CudaStorage::wrap_cuda_slice(dst_tile_bins,dev);
+    let tile_bins = from_storage(candle_core::Storage::Cuda(tile_bins_storage),Shape::from_dims(&[(tile_x*tile_y) as usize,2]), BackpropOp::none(),false);
+    
+
+    Ok(tile_bins)
 }
+
+
+
 
 pub fn compute_cov2d_bounds(
     cov2d:Tensor
-) -> (Tensor,Tensor){
+) -> Result<(Tensor,Tensor)>{
 
     /*Computes bounds of 2D covariance matrix
 
@@ -158,10 +253,44 @@ pub fn compute_cov2d_bounds(
     */
 
 
-    assert!(cov2d.shape().dims()[cov2d.shape().rank()-1]==3, "Execpected Expected input cov2d to be of shape (*batch, 3) (upper triangular values)");
-    let num_pts = cov2d.shape().dims()[0];
+    assert!(cov2d.dim(D::Minus1).unwrap()==3, "Execpected Expected input cov2d to be of shape (*batch, 3) (upper triangular values)");
+    let num_pts = cov2d.dim(0).unwrap();
+    let cov2_dim1 = cov2d.dim(1).unwrap();
     assert!(num_pts>0);
-    cuda::compute_cov2d_bounds(num_pts,cov2d.contiguous())
+
+    // Partie appel fonction CUDA/C++
+    let (cov2d_storage, cov2d_layout) = cov2d.storage_and_layout();
+    let cov2d_storage: candle::CudaStorage = to_cuda_storage(&cov2d_storage, &cov2d_layout).unwrap();
+    let dev = cov2d_storage.device().clone();
+    let slice_cov2d = cov2d_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_cov2d = match cov2d_layout.contiguous_offsets(){
+        None => candle::bail!("cov 2d input has to be contiguous"),
+        Some((o1, o2)) => slice_cov2d.slice(o1..o2),
+    };
+    let func = dev.get_or_load_func("compute_cov2d_bounds_kernel",BINDINGS).unwrap();
+    let dst_conics = unsafe { dev.alloc::<f32>(num_pts*cov2_dim1) }.w().unwrap();
+    let dst_radii = unsafe { dev.alloc::<f32>(num_pts) }.w().unwrap();
+    let params = (
+        num_pts as u32,
+        &slice_cov2d,
+        &dst_conics,
+        &dst_radii
+    );
+    let n_threads = 1024;
+    let nb_block = (num_pts + n_threads - 1 )/n_threads ;
+    let cfg = LaunchConfig{
+        grid_dim:(nb_block as u32,1,1),
+        block_dim:(n_threads as u32,1,1),
+        shared_mem_bytes: 0,
+    };
+    unsafe { func.launch(cfg, params) }.w().unwrap();
+    let conics_storage = candle::CudaStorage::wrap_cuda_slice(dst_conics,dev);
+    let radii_storage = candle::CudaStorage::wrap_cuda_slice(dst_radii,dev);
+
+    let conics = from_storage(candle_core::Storage::Cuda(conics_storage), Shape::from_dims(&[num_pts,cov2_dim1]), BackpropOp::none(),false);
+    let radii = from_storage(candle_core::Storage::Cuda(radii_storage), Shape::from_dims(&[num_pts]), BackpropOp::none(),false);
+    Ok((conics,radii))
+
 }
 
 pub fn compute_cumulative_intersects(
@@ -182,7 +311,7 @@ pub fn compute_cumulative_intersects(
         - **cum_tiles_hit** (candle::Tensor): a tensor of cumulated intersections (used for sorting).
     */
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
-    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.shape().dims()[0]-1).unwrap().to_vec0::<i64>().unwrap() as isize;
+    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<i64>().unwrap() as isize;
     // suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     (num_intersects,cum_tiles_hit)
 }
@@ -223,11 +352,11 @@ pub fn bin_and_sort_gaussians(
     */
     let (isect_ids, gaussian_ids )= map_gaussian_to_intersects(
         num_points, num_intersects, xys, depths, radii, cum_tiles_hit, tile_bounds
-    );
+    ).unwrap();
     let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
     let isect_ids_sorted = isect_ids.gather(&sorted_indices,0).unwrap();
     //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
     let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0).unwrap();
-    let tile_bins = get_tile_bin_edges(num_intersects, isect_ids_sorted, tile_bounds);
+    let tile_bins = get_tile_bin_edges(num_intersects, isect_ids_sorted, tile_bounds).unwrap();
     (isect_ids, gaussian_ids, isect_ids_sorted, gaussian_ids_sorted, tile_bins)
 }

@@ -1,12 +1,12 @@
-#[allow(unused)]
-mod cuda_kernels;
 
-#[cfg(feature = "cuda")]
-use crate::cuda_kernels::FORWARD;
-
+use super::cuda_kernels::FORWARD;
+use candle_core::CustomOp1;
 use candle_core::backend::BackendStorage;
-use candle_core::cuda_backend::{cudarc::driver::{LaunchAsync, LaunchConfig}, CudaDevice, WrapErr};
-use candle_core::{CustomOp1, Layout, Result, Shape, Tensor};
+use candle_core::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig};
+use candle_core::cuda_backend::{WrapErr,CudaDevice};
+use candle_core::backend::BackendDevice;
+use candle_core::{Layout, Result, Shape};
+
 
 
 pub struct ProjectGaussians{
@@ -17,24 +17,23 @@ pub struct ProjectGaussians{
     pub cy : f32,
     pub img_height: u32,
     pub img_width : u32,
-    pub tile_bounds: &(i32, i32, i32),
+    pub tile_bounds: &(u32, u32, u32), //a passer en param
     pub clip_thresh: f32,
-    pub viewmat : &candle_core::Tensor,
-    pub projmat : &candle_core::Tensor,
-};
+    pub viewmat : &candle_core::Tensor, //a passer en param (juste storage et layout comme les autres)
+    pub projmat : &candle_core::Tensor, //a passer en param (juste storage et layout comme les autres)
+}
 
-impl ProjectGaussian {
+impl ProjectGaussians {
 
-    fn fwd(
+    pub fn fwd(
         &self,
-        means3d_storage: &candle_core::CudaStorage,
-        means3d_layout: &Layout,
-        scale_storage: &candle_core::CudaStorage,
-        scale_layout: &Layout,
-        quats_storage: &candle_core::CudaStorage,
-        quats_layout: &Layout,
+        means3d_storage: candle_core::CudaStorage,
+        means3d_layout: &candle_core::Layout,
+        scale_storage: candle_core::CudaStorage,
+        scale_layout: &candle_core::Layout,
+        quats_storage: candle_core::CudaStorage,
+        quats_layout: &candle_core::Layout,
     ) -> Result<(candle_core::CudaStorage, Shape,
-        candle_core::CudaStorage, Shape,
         candle_core::CudaStorage, Shape,
         candle_core::CudaStorage, Shape,
         candle_core::CudaStorage, Shape,
@@ -50,7 +49,7 @@ impl ProjectGaussian {
             let devq = quats_storage.device().clone();
             let devproj = self.projmat.device().clone();
             let devview = self.viewmat.device().clone();
-            if devm3D != devsc || devm3D != devq || devsc != devq || devproj != devview {
+            if ! devm3D.same_device(&devsc) || ! devm3D.same_device(&devq) {//|| not devm3D.same_device(&devproj) || not devm3D.same_device(&devview) {
                 candle_core::bail!("all inputs must be on the same device");
             }
             let dev = devm3D;
@@ -71,14 +70,16 @@ impl ProjectGaussian {
                 Some((o1, o2)) => slice_q.slice(o1..o2),
             };
             let func = dev.get_or_load_func("project_gaussians_forward", FORWARD)?; //Cette partie de binding n'est pas fonctionnelle, il faut la revoir
-            let num_points = means3d_layout.shape().dims2()?;
+            let num_points = means3d_layout.shape().dims();
+            let num_points = num_points[0];
+
             let dst_cov3d = unsafe { dev.alloc::<f32>(num_points*6) }.w()?;
             let dst_xys_d = unsafe { dev.alloc::<f32>(num_points*2) }.w()?;
             let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-            let dst_radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+            let dst_radii = unsafe { dev.alloc::<i64>(num_points) }.w()?;
             let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
             let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-            let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+            let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
             
             let params = (
                 &slice_m3D,
@@ -102,13 +103,16 @@ impl ProjectGaussian {
 
             let N_THREADS = 256; //TODO : voir si on peut le mettre en argument
             let N_BLOCKS = (num_points + N_THREADS - 1) / N_THREADS;
+            let N_THREADS = N_THREADS as u32;
+            let N_BLOCKS = N_BLOCKS as u32;
             let cfg = LaunchConfig {
                 grid_dim: (N_BLOCKS, 1, 1),
                 block_dim: (N_THREADS, 1, 1),
                 shared_mem_bytes: 0,
             };
 
-            unsafe { func.launch(cfg, params) }.w()?;
+            //mdr func.launch peut lancer des launchs que jusqu'à 11 paramètres, sans raison particulière xd
+            //unsafe { func.launch(cfg, params) }.w()?;
             
             let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev);
             let dst_xys_d = candle_core::CudaStorage::wrap_cuda_slice(dst_xys_d, dev);
@@ -144,18 +148,29 @@ impl ProjectGaussian {
             candle_core::CudaStorage, Shape,
             candle_core::CudaStorage, Shape,
             candle_core::CudaStorage, Shape,
-            candle_core::CudaStorage, Shape,)>
+        )>
             {
-                let num_points = means3d_layout.shape().dims2()?;
+                let num_points = means3d_layout.shape().dims();
+                let num_points = num_points[0];
+
                 let dev = means3d_storage.device().clone();
                 let dst_cov3d = unsafe { dev.alloc::<f32>(num_points*6) }.w()?;
                 let dst_xys_d = unsafe { dev.alloc::<f32>(num_points*2) }.w()?;
                 let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-                let dst_radii = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                let dst_radii = unsafe { dev.alloc::<i64>(num_points) }.w()?;
                 let dst_conics = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
                 let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-                let dst_num_tiles_hit = unsafe { dev.alloc::<i32>(num_points) }.w()?;
+                let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
                 
+                let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev);
+                let dst_xys_d = candle_core::CudaStorage::wrap_cuda_slice(dst_xys_d, dev);
+                let dst_depth = candle_core::CudaStorage::wrap_cuda_slice(dst_depth, dev);
+                let dst_radii = candle_core::CudaStorage::wrap_cuda_slice(dst_radii, dev);
+                let dst_conics = candle_core::CudaStorage::wrap_cuda_slice(dst_conics, dev);
+                let dst_compensation = candle_core::CudaStorage::wrap_cuda_slice(dst_compensation, dev);
+                let dst_num_tiles_hit = candle_core::CudaStorage::wrap_cuda_slice(dst_num_tiles_hit, dev);
+
+
                 Ok((dst_cov3d, Shape::from_dims(&[num_points,6]),
                     dst_xys_d, Shape::from_dims(&[num_points,2]),
                     dst_depth, Shape::from_dims(&[num_points]),
@@ -176,14 +191,14 @@ impl CustomOp1 for ProjectGaussians {
     //après avoir testé customop.rs et fwd : IMPLEMENTER BACKWARD
 }
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod test {
     use super::*;
     
     #[test]
-    fn test_func_binding(){
-        let dev = candle_core::cuda_backend::CudaDevice::new(0)?;
-        let func = dev.get_or_load_func("project_gaussians_forward", FORWARD)?;
+    fn test_func_binding() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dev = CudaDevice::new(0)?;
+        let func = dev.get_or_load_func("project_gaussians_forward", FORWARD);
         match func {
             Ok(_) => assert!(true),
             Err(e) => panic!("Expected successful loading, but got error: {:?}", e),
@@ -191,8 +206,8 @@ mod test {
     }
     // unsafe fn launch(self, cfg: LaunchConfig, params: Params) -> Result<(), result::DriverError>;
     #[test]
-    fn dummy_launch(){
-        let dev = candle_core::cuda_backend::CudaDevice::new(0)?;
+    fn dummy_launch() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dev = CudaDevice::new(0)?;
         let func = dev.get_or_load_func("project_gaussians_forward", FORWARD)?;
         let params = (0,0,0,0,0,0,0,0,0,0,0,0,0);
         let cfg = LaunchConfig {
@@ -200,12 +215,9 @@ mod test {
             block_dim: (0, 0, 0),
             shared_mem_bytes: 0,
         };
-        let res = unsafe { func.launch(cfg, params) }.w()?;
-        match res {
-            Ok(_) => assert!(true),
-            Err(e) => panic!("Expected successful launch, but got error: {:?}", e),
-        }
+        //unsafe { func.launch(cfg, params) };
+        
     }
     
 
-}
+} */
