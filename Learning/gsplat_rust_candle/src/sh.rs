@@ -131,7 +131,7 @@ impl CustomOp2 for _SphericalHarmonicsFct{
         grad_res: &Tensor,
     ) -> candle::Result<(Option<Tensor>, Option<Tensor>)> {
         let _SphericalHarmonicsFct(degrees_to_use,degree,num_points) = *self;
-        let op = _SphericalHarmonics_bwd(degrees_to_use,degree,num_points,arg1.shape().dims()[0],arg1.shape().dims()[1],arg1.shape().dims()[2]);
+        let op = _SphericalHarmonics_bwd(degrees_to_use,degree,num_points,arg1.dim(0)?,arg1.dim(1)?,arg1.dim(2)?);
         Ok((Some(res.apply_op2(&arg2,op)?),None))
     }
 }
