@@ -12,6 +12,7 @@ edition = "2018"
 [dependencies]
 wgpu = "0.17.0"
 geometric_algebra = "0.3.0"
+bytemuck = "1.5"
 
 
 ### Showcase Example ###

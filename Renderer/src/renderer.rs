@@ -2,13 +2,17 @@ use std::convert::TryInto;
 
 use crate::{
     scene::{Scene, Splat},
-    utils::{mat4_multiplication, mat4_transform, motor3d_to_mat4, perspective_projection, transmute_slice},
+    utils::{mat4_multiplication, mat4_transform, motor3d_to_mat4, perspective_projection, transmute_slice,read_and_print_radii_buffer},
 };
 use geometric_algebra::{
     ppga3d::{Motor, Point},
     Inverse,
 };
 use wgpu::util::DeviceExt;
+use std::fs::File;
+use std::io::Write;
+use std::any::Any;
+use std::path::Path;
 
 /// Selects how splats are sorted by their distance to the camera
 pub enum DepthSorting {
@@ -81,7 +85,10 @@ pub struct Renderer {
     pub(crate) sorting_buffer: wgpu::Buffer,
     pub(crate) entry_buffer_a: wgpu::Buffer,
     pub(crate) entry_buffer_b: wgpu::Buffer,
-}
+    pub(crate) radii_buffer: wgpu::Buffer, // ce buffer contiendra les radii associcé aux splat, après le tri ? Utile pour la densification
+    radii_compute_a_pipeline: wgpu::ComputePipeline,
+
+} 
 
 impl Renderer {
     /// Constructs a new [Renderer]
@@ -131,6 +138,7 @@ impl Renderer {
         ] {
             string = string.replace(name, value);
         }
+        
         // on compile le shader avec les configuriations
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -197,7 +205,7 @@ impl Renderer {
                 uniform_layout,
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX|wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -206,8 +214,24 @@ impl Renderer {
                     count: None,
                 },
                 splats_layout,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7, // Assurez-vous que ce binding est unique et non utilisé
+                    visibility: wgpu::ShaderStages::COMPUTE ,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<(u32, u32)>() as u64),
+
+                    },
+                    count: None,
+                },
             ],
         });
+
+
+     
+
+
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&render_bind_group_layout],
@@ -230,7 +254,7 @@ impl Renderer {
             push_constant_ranges: &[],
         });
         let radix_sort_a_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
+            label: Some("Mon Pipelinezz de Calcul"),
             layout: Some(&compute_pipeline_layout),
             module: &shader_module,
             entry_point: "radixSortA",
@@ -247,6 +271,7 @@ impl Renderer {
             module: &shader_module,
             entry_point: "radixSortC",
         });
+        
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&render_pipeline_layout),
@@ -295,7 +320,7 @@ impl Renderer {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST| wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let sorting_pass_buffers = (0..4)
@@ -332,6 +357,31 @@ impl Renderer {
             usage: entry_buffer_usage,
             mapped_at_creation: false,
         });
+
+
+
+        // calcul du Radii
+        // création du buffer qui contiendra les info pour le calcul du Radii
+        let radii_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (config.max_splat_count * std::mem::size_of::<f32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        let radii_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&render_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let radii_compute_a_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Mon Pipeline de Calcul"),
+            layout: Some(&radii_pipeline_layout),
+            module: &shader_module,
+            entry_point: "computeRadii",
+        });
+      
+    
         Self {
             config,
             radix_digit_places,
@@ -351,9 +401,11 @@ impl Renderer {
             sorting_buffer,
             entry_buffer_a,
             entry_buffer_b,
+            radii_buffer,
+            radii_compute_a_pipeline
         }
     }
-
+    
     /// Renders the given `scene` into `frame_view`
     pub fn render_frame(
         &self,
@@ -364,6 +416,7 @@ impl Renderer {
         camera_motor: Motor,
         scene: &Scene,
     ) {
+        //camera_matrix contient la représentation matricielle de la transformation de la caméra, ce qui peut être utilisé dans le contexte de WebGPU pour déterminer la vue ou la projection d'objets 3D à l'écran.
         let camera_matrix = motor3d_to_mat4(&camera_motor);
         let view_matrix = motor3d_to_mat4(&camera_motor.inverse());
         let field_of_view_y = std::f32::consts::PI * 0.5;
@@ -375,24 +428,29 @@ impl Renderer {
         if matches!(self.config.depth_sorting, DepthSorting::Cpu) {
             let mut entries: Vec<(u32, u32)> = (0..scene.splat_count)
                 .filter_map(|splat_index| {
+                    // On récupère la position dans le monde du splat
                     let world_position = Point::new(
                         scene.splat_positions[splat_index * 3 + 0],
                         scene.splat_positions[splat_index * 3 + 1],
                         scene.splat_positions[splat_index * 3 + 2],
                         1.0,
                     );
+                    //La position du monde est transformée en espace de clip à l'aide de la view_projection_matrix
                     let homogenous_position = mat4_transform(&view_projection_matrix, &world_position);
                     let clip_space_position = homogenous_position * (1.0 / homogenous_position[3]);
+                    //On vérifie si le "splat" est à l'intérieur du frustum de la caméra en utilisant la frustum_culling_tolerance
                     if clip_space_position[0].abs() < self.config.frustum_culling_tolerance
                         && clip_space_position[1].abs() < self.config.frustum_culling_tolerance
                         && (clip_space_position[2] - 0.5).abs() < 0.5
                     {
+                        //n prépare un tuple contenant la profondeur (convertie de f32 à u32 pour le tri) et l'index du "splat"
                         Some((unsafe { std::mem::transmute::<f32, u32>(clip_space_position[2]) }, splat_index as u32))
                     } else {
                         None
                     }
                 })
                 .collect();
+            //Une fois triés, les indices et profondeurs des "splats" sont écrits dans le buffer self.entry_buffer_a. Ce buffer est utilisé plus tard dans le pipeline de rendu pour dessiner les "splats" dans l'ordre correct.
             splat_count = entries.len();
             entries.sort_by(|a, b| a.0.cmp(&b.0));
             queue.write_buffer(&self.entry_buffer_a, 0, transmute_slice::<_, u8>(&entries));
@@ -409,7 +467,32 @@ impl Renderer {
             splat_scale: self.config.splat_scale,
             padding: [0.0; 0],
         }];
+        //les données uniformes dans le buffer uniforme (uniform_buffer) utilisé par le shader. 
         queue.write_buffer(&self.uniform_buffer, 0, transmute_slice::<_, u8>(uniform_data));
+        println!("Taille du buffer : {}", self.uniform_buffer.size());
+        if let Some(label) = self.uniform_buffer.label() {
+            println!("Étiquette du buffer : {}", label);
+        } else {
+            println!("Pas d'étiquette définie pour le buffer");
+        }                // let path = Path::new("src/res.bin");
+        // let file = File::create(path).expect("Failed to create file");
+        // let mut file = Some(file);
+
+        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.uniform_buffer.slice(..), move |buffer_result| {
+        //     if let Some(mut file) = file.take() { // Prend possession du fichier dans la fermeture
+        //         if let Ok(download_buffer) = buffer_result {
+        //             println!("AHHAHAHAHHAHAHHAHHAHHAHAHHAA");
+
+        //             let data = transmute_slice::<u8, u32>(&*download_buffer);
+        //             for &value in data.iter() {
+        //                 file.write_all(&value.to_ne_bytes()).expect("Failed to write data to file");
+        //             }
+        //         } else {
+        //             eprintln!("Failed to read buffer: {:?}", buffer_result.err());
+        //         }
+        //     }
+        // });
+        // on initialise un buffer de commande
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         if matches!(self.config.depth_sorting, DepthSorting::Gpu | DepthSorting::GpuIndirectDraw) {
             encoder.clear_buffer(&self.sorting_buffer, 0, None);
@@ -435,6 +518,13 @@ impl Renderer {
                 compute_pass.dispatch_workgroups(1, ((splat_count + self.workgroup_entries_c - 1) / self.workgroup_entries_c) as u32, 1);
             }
         }
+        {let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+        compute_pass.set_bind_group(0, &scene.render_bind_group, &[]);
+        compute_pass.set_pipeline(&self.radii_compute_a_pipeline);}
+         
+
+
+       
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -456,15 +546,24 @@ impl Renderer {
                 render_pass.draw(0..4, 0..splat_count as u32);
             }
         }
-        /*wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(self.sorting_buffer_size as u64 - 4 * 5..self.sorting_buffer_size as u64), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-            println!("{:X?}", transmute_slice::<u8, u32>(&*buffer.unwrap()));
-        });
-        wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(0..self.sorting_buffer_size as u64 - 4 * 5), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-            println!("{:X?}", transmute_slice::<u8, [u32; 256]>(&*buffer.unwrap()));
-        });
-        wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.entry_buffer_a.slice(..), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-            println!("{:X?}", transmute_slice::<u8, [(u32, u32); 1024]>(&*buffer.unwrap()));
-        });*/
+        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(self.sorting_buffer_size as u64 - 4 * 5..self.sorting_buffer_size as u64), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
+        //     println!("WESH{:X?}", transmute_slice::<u8, u32>(&*buffer.unwrap()));
+        // });
+        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(0..self.sorting_buffer_size as u64 - 4 * 5), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
+        //     println!("WSH{:X?}", transmute_slice::<u8, [u32; 256]>(&*buffer.unwrap()));
+        // });
+        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.entry_buffer_a.slice(..), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
+        //     println!("WESh{:X?}", transmute_slice::<u8, [(u32, u32); 1024]>(&*buffer.unwrap()));
+        // });
+        // Lecture du contenu du buffer radii_buffer
+        // read_and_print_radii_buffer(device, queue, &self.entry_buffer_b);
+       
+
+       
+        
+
         queue.submit(Some(encoder.finish()));
+       
+
     }
 }

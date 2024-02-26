@@ -58,6 +58,14 @@ impl Scene {
                 size: std::num::NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
             }),
         };
+        let radii_bind_group_entry= wgpu::BindGroupEntry {
+            binding: 7, // Le binding du buffer des radii, correspondant à la définition dans le layout
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: &renderer.radii_buffer,
+                offset: 0,
+                size: None, // Utilisez la totalité du buffer
+            }),
+        };
         let sorting_bind_group_entry = wgpu::BindGroupEntry {
             binding: 2,
             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -74,6 +82,7 @@ impl Scene {
                 size: std::num::NonZeroU64::new((splat_count * std::mem::size_of::<Splat>()) as u64),
             }),
         };
+        
         let compute_bind_groups: [wgpu::BindGroup; 4] = (0..4)
             .map(|pass_index| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -139,6 +148,8 @@ impl Scene {
                     }),
                 },
                 splats_bind_group_entry,
+                radii_bind_group_entry,
+
             ],
         });
         Self {

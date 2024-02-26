@@ -40,6 +40,7 @@ struct Splat {
 @group(0) @binding(4) var<storage, read_write> output_entries: array<Entry>;
 @group(0) @binding(5) var<storage, read> sorted_entries: array<Entry>;
 @group(0) @binding(6) var<storage> splats: array<Splat>;
+@group(0) @binding(7) var<storage, write> radii: array<f32>;
 
 fn screenToClipSpace(screen_space_pos: vec2<f32>) -> vec2<f32> {
     var result = ((screen_space_pos.xy / vec2<f32>(uniforms.image_size)) - vec2<f32>(0.5));
@@ -403,6 +404,31 @@ fn exclusiveScan(gl_LocalInvocationIndex: u32, value: u32) -> u32 {
     return sorting_shared_c.scan[gl_LocalInvocationIndex + conflicFreeOffset(gl_LocalInvocationIndex)];
 }
 
+// Compute shader pour calculer radii
+
+@compute @workgroup_size(64)
+fn computeRadii(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let id = global_id.x;
+    if (id >= arrayLength(&sorted_entries)) {
+        return; // S'assurer que l'ID ne dépasse pas le nombre de splats triés
+    }
+
+    let sorted_index = sorted_entries[id].value; // Utiliser l'indice trié pour accéder au splat
+    let world_position = splats[sorted_index].center;
+    let covariance = projectedCovarianceOfEllipsoid(splats[sorted_index].scale * uniforms.splat_scale, splats[sorted_index].rotation, world_position);
+    let mid: f32 = 0.5 * (covariance[0][0] + covariance[1][1]); // Assurez-vous que c'est covariance[1][1] pour une matrice 2D
+    let det: f32 = covariance[0][0] * covariance[1][1] - covariance[0][1] * covariance[1][0];
+    let lambda1: f32 = mid + sqrt(max(0.1, mid * mid - det));
+    let lambda2: f32 = mid - sqrt(max(0.1, mid * mid - det));
+
+    // Calcul du "rayon" basé sur les valeurs propres de la matrice de covariance
+    let radius: f32 = ceil(3.0 * sqrt(max(lambda1, lambda2)));
+
+    // Stockage du rayon calculé dans le buffer des radii
+    radii[sorted_index] = radius; // Stocker le rayon à l'indice original, si nécessaire
+}
+
+
 @compute @workgroup_size(WORKGROUP_INVOCATIONS_C)
 fn radixSortC(
     @builtin(local_invocation_id) gl_LocalInvocationID: vec3<u32>,
@@ -507,6 +533,7 @@ struct VertexOutput {
     @location(0) @interpolate(flat) color: vec4<f32>,
     @location(1) @interpolate(linear) gl_TexCoord: vec2<f32>,
     // @location(2) @interpolate(flat) splat_index: u32,
+
 }
 
 @vertex
@@ -542,6 +569,7 @@ fn vertex(
     if(USE_COVARIANCE_FOR_SCALE) {
         let covariance = projectedCovarianceOfEllipsoid(splats[splat_index].scale * uniforms.splat_scale, splats[splat_index].rotation, world_position);
         semi_axes = extractScaleOfCovariance(covariance);
+        
     } else {
         semi_axes = extractScaleOfEllipse(M, translation, rotation);
     }

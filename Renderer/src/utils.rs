@@ -3,7 +3,27 @@
 
 use geometric_algebra::{ppga3d, Transformation, Zero};
 use std::convert::TryInto;
+pub fn read_and_print_radii_buffer(device: &wgpu::Device, queue: &wgpu::Queue, radii_buffer: &wgpu::Buffer) {
+    // Lecture du contenu du buffer radii_buffer
+    wgpu::util::DownloadBuffer::read_buffer(device, queue, &radii_buffer.slice(..), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
+        // Callback exécuté lorsque la lecture est terminée
+        match buffer {
+            Ok(buffer_data) => {
+                println!("AHHAHAHAHHAHAHHAHHAHHAHAHHAA");
 
+                // Conversion du buffer en un tableau de f32
+                let radii_data: &[f32] = transmute_slice::<u8, f32>(&*buffer_data);
+                // Affichage du contenu du buffer
+                
+                println!("Contenu du buffer radii_buffer : {:?}", radii_data);
+            },
+            Err(err) => {
+                // Gestion de l'erreur de lecture du buffer
+                eprintln!("Erreur lors de la lecture du buffer radii_buffer : {:?}", err);
+            }
+        }
+    });
+}
 /// Transmutes a vector.
 pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
     let ptr = vec.as_mut_ptr() as *mut T;
