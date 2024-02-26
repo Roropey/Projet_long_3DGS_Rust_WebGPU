@@ -1,14 +1,20 @@
-use candle_core::Tensor
-use candle_core::tensor::from_storage;
 use candle_core::Tensor;
+use candle_core::tensor::from_storage;
 use candle_core::TensorId;
 use candle_core::Result;
 use candle_core::Storage;
 use candle_core::Shape;
 use candle_core::op::BackpropOp;
+use candle_core::backend::BackendStorage;
 use candle_core::CustomOp1;
+use candle_core::op::Op;
 
-
+fn to_cuda_storage(storage: &Storage,layout : &candle_core::Layout) -> Result<candle_core::CudaStorage> {
+    match storage {
+        Storage::Cuda(s) => Ok(s.try_clone(layout)?),
+        _ => unreachable!(),
+    }
+}
 
 /*/// Projette des gaussiennes 3D dans un espace 2D en utilisant les paramètres spécifiés.
 ///
@@ -58,7 +64,7 @@ use candle_core::CustomOp1;
 /// Cette fonction peut renvoyer une erreur si les tensors fournis ne sont pas conformes aux attentes
 /// ou si la projection ne peut pas être réalisée pour une autre raison. */
 
-pub fn ProjectGaussians(num_points : i32,
+pub fn ProjectGaussians(num_points : i64,
     means3d : &candle_core::Tensor,
     scales: &candle_core::Tensor,
     glob_scale : f32,
@@ -69,43 +75,54 @@ pub fn ProjectGaussians(num_points : i32,
     fy : f32,
     cx : f32,
     cy : f32,
-    img_height: i32,
-    img_width : i32,
-    tile_bounds: &(i32, i32, i32),
+    img_height: u32,
+    img_width : u32,
+    tile_bounds: &(u32, u32, u32),
     clip_thresh: f32) -> Result<(candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor)>
 {   
     let max = 0;
-    let A = [means3d,scales,quats]
+    let A = [means3d,scales,quats];
     for arg in A.iter(){
         if arg.rank() > max{
             max = arg.rank();
         }
     }
     for arg in A.iter(){
-        for i in 0..((max as i32) - (arg.rank() as i32)){
+        for i in 0..((max as i64) - (arg.rank() as i64)){
             arg.unsqueeze(0);
         }
     }
     let tensor_in = Tensor::stack(&A,1)?;
-    let c = crate::bindings::ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh,viewmat,projmat};
+    
+    let (viewmat_storage, viewmat_layout) = viewmat.storage_and_layout();
+    let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
+    let viewmat_storage = to_cuda_storage(&viewmat_storage, &viewmat_layout)?;
+    let projmat_storage = to_cuda_storage(&projmat_storage, &projmat_layout)?;
+    
+    let c = super::bindings::ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh,viewmat,projmat};
     
     //reecriture de la fonction apply_op1_arc de tensor.rs pour bypass le fonctionnement normal
     let (means3d_storage, means3d_layout) = means3d.storage_and_layout();
     let (scales_storage, scales_layout) = scales.storage_and_layout();
     let (quats_storage, quats_layout) = quats.storage_and_layout();
-    let (viewmat_storage, viewmat_layout) = viewmat.storage_and_layout();
-    let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
     
-    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout, viewmat_storage, viewmat_layout, projmat_storage, projmat_layout)?;
+
+    let means3d_storage = to_cuda_storage(&means3d_storage, &means3d_layout)?;
+    let scales_storage = to_cuda_storage(&scales_storage, &scales_layout)?;
+    let quats_storage = to_cuda_storage(&quats_storage, &quats_layout)?;
+    
+
+    
+    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
 
    
-    let tensor_cov3d = from_storage(storage_cov3d, shape_cov3d, BackpropOp::none(),false);
-    let tensor_xys = from_storage(storage_xys, shape_xys, BackpropOp::none(),false);
-    let tensor_depth = from_storage(storage_depth, shape_depth, BackpropOp::none(),false);
-    let tensor_radii = from_storage(storage_radii, shape_radii, BackpropOp::none(),false);
-    let tensor_conics = from_storage(storage_conics, shape_conics, BackpropOp::none(),false);
-    let tensor_compensation = from_storage(storage_compensation, shape_compensation, BackpropOp::none(),false);
-    let tensor_num_tiles_hit = from_storage(storage_num_tiles_hit, shape_num_tiles_hit, BackpropOp::none(),false);
+    let tensor_cov3d = from_storage(candle_core::Storage::Cuda(storage_cov3d), shape_cov3d, BackpropOp::none(),false);
+    let tensor_xys = from_storage(candle_core::Storage::Cuda(storage_xys), shape_xys, BackpropOp::none(),false);
+    let tensor_depth = from_storage(candle_core::Storage::Cuda(storage_depth), shape_depth, BackpropOp::none(),false);
+    let tensor_radii = from_storage(candle_core::Storage::Cuda(storage_radii), shape_radii, BackpropOp::none(),false);
+    let tensor_conics = from_storage(candle_core::Storage::Cuda(storage_conics), shape_conics, BackpropOp::none(),false);
+    let tensor_compensation = from_storage(candle_core::Storage::Cuda(storage_compensation), shape_compensation, BackpropOp::none(),false);
+    let tensor_num_tiles_hit = from_storage(candle_core::Storage::Cuda(storage_num_tiles_hit), shape_num_tiles_hit, BackpropOp::none(),false);
     
 
     let tensortot = Tensor::cat(&[tensor_cov3d,tensor_xys,tensor_depth,tensor_radii,tensor_conics,tensor_compensation,tensor_num_tiles_hit],1)?;
@@ -114,7 +131,7 @@ pub fn ProjectGaussians(num_points : i32,
     let shape = tensortot.shape();
     let (storage, layout) = tensortot.storage_and_layout();
     let storage = storage.try_clone(layout)?;
-    let op = BackpropOp::new1(&tensor_in, |s| CustomOp1(s, c.clone()));
+    let op = BackpropOp::new1(&tensor_in, |s| Op::CustomOp1(s, c.clone()));
     let tensor_out = from_storage(storage, shape, op,false);
     
 
