@@ -22,6 +22,8 @@ struct Splat {
 
 //@group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(0) @binding(0) var<storage> splats: array<Splat>;
+@group(0) @binding(1) var<storage, read_write> radii: array<f32>;
+
 
 
 struct VertexInput {
@@ -33,6 +35,25 @@ struct VertexOutput {
     @builtin(position) gl_Position: vec4<f32>,
     @location(0) @interpolate(flat) color: vec4<f32>,
     @location(1) @interpolate(linear) gl_TexCoord: vec2<f32>,
+}
+
+@compute @workgroup_size(64,1,1)
+fn computeRadii(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    
+    let id = global_id.x;
+
+    let world_position = splats[id].center;
+    let covariance = splats[id].cov;
+    let mid: f32 = 0.5 * (covariance[0][0] + covariance[1][1]); // Assurez-vous que c'est covariance[1][1] pour une matrice 2D
+    let det: f32 = covariance[0][0] * covariance[1][1] - covariance[0][1] * covariance[1][0];
+    let lambda1: f32 = mid + sqrt(max(0.1, mid * mid - det));
+    let lambda2: f32 = mid - sqrt(max(0.1, mid * mid - det));
+
+    // Calcul du "rayon" basé sur les valeurs propres de la matrice de covariance
+    let radius: f32 = ceil(3.0 * sqrt(max(lambda1, lambda2)));
+
+    // Stockage du rayon calculé dans le buffer des radii
+    radii[id] = radius; //radius; // Stocker le rayon à l'indice original, si nécessaire
 }
 
 @vertex

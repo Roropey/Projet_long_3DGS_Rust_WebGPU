@@ -36,8 +36,11 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    compute_pipeline: wgpu::ComputePipeline,
     render_bind_group: wgpu::BindGroup,
+    compute_bind_group: wgpu::BindGroup,
     splat_buffer: wgpu::Buffer,
+    radii_buffer: wgpu::Buffer,
     window: Window,
 }
 
@@ -105,11 +108,22 @@ impl State {
 
         let splats_layout = wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
                 min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<Splat>() as u64),
+            },
+            count: None,
+        };
+
+        let radii_layout = wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<f32>() as u64),
             },
             count: None,
         };
@@ -122,10 +136,25 @@ impl State {
             mapped_at_creation: false,
         });
 
+        let radii_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("radii_buffer"),
+            size: (splat_count * std::mem::size_of::<f32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC ,
+            mapped_at_creation: false,
+        });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
+
+        let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("compute bind group layout"),
+            entries: &[
+                splats_layout,
+                radii_layout
+            ],
+        }); 
 
         let render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("render bind group layout"),
@@ -149,10 +178,46 @@ impl State {
             ],
         });
 
+        let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &compute_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &splat_buffer,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new((splat_count * std::mem::size_of::<Splat>()) as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &radii_buffer,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new((splat_count * std::mem::size_of::<f32>()) as u64),
+                    }),
+                },
+            ],
+        });
+
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts:  &[&render_bind_group_layout],
             push_constant_ranges: &[],
+        });
+
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("compute Pipeline Layout"),
+            bind_group_layouts:  &[&compute_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("compute pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader,
+            entry_point: "computeRadii",
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -203,13 +268,16 @@ impl State {
 
         Self {
             render_bind_group,
+            compute_bind_group,
             splat_buffer,
+            radii_buffer,
             surface,
             device,
             queue,
             config,
             size,
             render_pipeline,
+            compute_pipeline,
             window
         }
     
@@ -264,6 +332,34 @@ impl State {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+                    compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
+                    compute_pass.set_pipeline(&self.compute_pipeline);
+                    compute_pass.dispatch_workgroups(1,1,1);
+    
+        }
+    
+            wgpu::util::DownloadBuffer::read_buffer(&self.device, &self.queue, &self.radii_buffer.slice(..), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
+                // Callback exécuté lorsque la lecture est terminée
+                match buffer {
+                    Ok(buffer_data) => {
+                        println!("AHHAHAHAHHAHAHHAHHAHHAHAHHAA");
+        
+                        // Conversion du buffer en un tableau de f32
+                        let radii_data: &[f32] = transmute_slice::<u8, f32>(&*buffer_data);
+                        // Affichage du contenu du buffer
+                        
+                        println!("Contenu du buffer radii_buffer : {:?}", radii_data);
+                    },
+                    Err(err) => {
+                        // Gestion de l'erreur de lecture du buffer
+                        eprintln!("Erreur lors de la lecture du buffer radii_buffer : {:?}", err);
+                    }
+                }
+            });
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
