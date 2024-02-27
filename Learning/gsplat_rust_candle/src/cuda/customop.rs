@@ -8,6 +8,8 @@ use candle_core::op::BackpropOp;
 use candle_core::backend::BackendStorage;
 use candle_core::CustomOp1;
 use candle_core::op::Op;
+use std::sync::{Arc, RwLock};
+use super::bindings::ProjectGaussians;
 
 fn to_cuda_storage(storage: &Storage,layout : &candle_core::Layout) -> Result<candle_core::CudaStorage> {
     match storage {
@@ -77,10 +79,10 @@ pub fn ProjectGaussians(num_points : i64,
     cy : f32,
     img_height: u32,
     img_width : u32,
-    tile_bounds: &(u32, u32, u32),
+    tile_bounds: (u32, u32, u32),
     clip_thresh: f32) -> Result<(candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor)>
 {   
-    let max = 0;
+    let mut max = 0;
     let A = [means3d,scales,quats];
     for arg in A.iter(){
         if arg.rank() > max{
@@ -94,26 +96,25 @@ pub fn ProjectGaussians(num_points : i64,
     }
     let tensor_in = Tensor::stack(&A,1)?;
     
-    let (viewmat_storage, viewmat_layout) = viewmat.storage_and_layout();
-    let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
-    let viewmat_storage = to_cuda_storage(&viewmat_storage, &viewmat_layout)?;
-    let projmat_storage = to_cuda_storage(&projmat_storage, &projmat_layout)?;
-    
-    let c = super::bindings::ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh,viewmat,projmat};
+    let c = super::bindings::ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh};
     
     //reecriture de la fonction apply_op1_arc de tensor.rs pour bypass le fonctionnement normal
     let (means3d_storage, means3d_layout) = means3d.storage_and_layout();
     let (scales_storage, scales_layout) = scales.storage_and_layout();
     let (quats_storage, quats_layout) = quats.storage_and_layout();
+    let (viewmat_storage, viewmat_layout) = viewmat.storage_and_layout();
+    let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
     
 
     let means3d_storage = to_cuda_storage(&means3d_storage, &means3d_layout)?;
     let scales_storage = to_cuda_storage(&scales_storage, &scales_layout)?;
     let quats_storage = to_cuda_storage(&quats_storage, &quats_layout)?;
+    let viewmat_storage = to_cuda_storage(&viewmat_storage, &viewmat_layout)?;
+    let projmat_storage = to_cuda_storage(&projmat_storage, &projmat_layout)?;
     
 
     
-    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
+    let (storage_cov3d, shape_cov3d, storage_xys, shape_xys, storage_depth, shape_depth, storage_radii, shape_radii, storage_conics, shape_conics, storage_compensation, shape_compensation, storage_num_tiles_hit, shape_num_tiles_hit) = c.fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout, viewmat_storage, viewmat_layout, projmat_storage, projmat_layout)?;
 
    
     let tensor_cov3d = from_storage(candle_core::Storage::Cuda(storage_cov3d), shape_cov3d, BackpropOp::none(),false);
@@ -131,7 +132,10 @@ pub fn ProjectGaussians(num_points : i64,
     let shape = tensortot.shape();
     let (storage, layout) = tensortot.storage_and_layout();
     let storage = storage.try_clone(layout)?;
-    let op = BackpropOp::new1(&tensor_in, |s| Op::CustomOp1(s, c.clone()));
+
+    let structc = Arc::new(Box::new(c) as Box<dyn CustomOp1 + Send + Sync>);
+
+    let op = BackpropOp::new1(&tensor_in, |s| Op::CustomOp1(s, structc.clone()));
     let tensor_out = from_storage(storage, shape, op,false);
     
 
