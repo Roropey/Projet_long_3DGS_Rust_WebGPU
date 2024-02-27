@@ -11,7 +11,7 @@ struct KernelDirectories {
 const KERNEL_DIRS: [KernelDirectories; 1] = [KernelDirectories {
     kernel_glob: "src/cuda/kernels/*.cu",
     rust_target: "src/cuda/cuda_kernels.rs",
-    include_dirs: &[],
+    include_dirs: &["src/cuda/kernels/helpers.cuh","src/cuda/kernels/config.h","src/cuda/kernels/backward.cuh","src/cuda/kernels/forward.cuh","src/cuda/kernels/glm.hpp","src/cuda/kernels/gtc/type_ptr.hpp"],
 }];
 
 fn main() -> Result<()> {
@@ -24,7 +24,8 @@ fn main() -> Result<()> {
     #[cfg(feature = "cuda")]
     {
         for kdir in KERNEL_DIRS.iter() {
-            let builder = bindgen_cuda::Builder::default().kernel_paths_glob(kdir.kernel_glob);
+            let builder = bindgen_cuda::Builder::default()
+            .kernel_paths_glob(kdir.kernel_glob);
             println!("cargo:info={builder:?}");
             let bindings = builder.build_ptx().unwrap();
             bindings.write(kdir.rust_target).unwrap()

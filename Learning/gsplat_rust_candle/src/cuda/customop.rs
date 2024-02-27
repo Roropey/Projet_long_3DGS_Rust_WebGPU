@@ -8,8 +8,11 @@ use candle_core::op::BackpropOp;
 use candle_core::backend::BackendStorage;
 use candle_core::CustomOp1;
 use candle_core::op::Op;
+use candle_core::cuda_backend::{WrapErr,CudaDevice};
+use candle_core::backend::BackendDevice;
+use candle_core::Device;
 use std::sync::{Arc, RwLock};
-use super::bindings::ProjectGaussians;
+
 
 fn to_cuda_storage(storage: &Storage,layout : &candle_core::Layout) -> Result<candle_core::CudaStorage> {
     match storage {
@@ -66,8 +69,7 @@ fn to_cuda_storage(storage: &Storage,layout : &candle_core::Layout) -> Result<ca
 /// Cette fonction peut renvoyer une erreur si les tensors fournis ne sont pas conformes aux attentes
 /// ou si la projection ne peut pas être réalisée pour une autre raison. */
 
-pub fn ProjectGaussians(num_points : i64,
-    means3d : &candle_core::Tensor,
+pub fn ProjectGaussians(means3d : &candle_core::Tensor,
     scales: &candle_core::Tensor,
     glob_scale : f32,
     quats : &candle_core::Tensor,
@@ -83,18 +85,18 @@ pub fn ProjectGaussians(num_points : i64,
     clip_thresh: f32) -> Result<(candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor,candle_core::Tensor)>
 {   
     let mut max = 0;
-    let A = [means3d,scales,quats];
-    for arg in A.iter(){
+    let a = [means3d,scales,quats];
+    for arg in a.iter(){
         if arg.rank() > max{
             max = arg.rank();
         }
     }
-    for arg in A.iter(){
-        for i in 0..((max as i64) - (arg.rank() as i64)){
-            arg.unsqueeze(0);
+    for arg in a.iter(){
+        for _i in 0..((max as i64) - (arg.rank() as i64)){
+            arg.unsqueeze(0)?;
         }
     }
-    let tensor_in = Tensor::stack(&A,1)?;
+    let tensor_in = Tensor::stack(&a,1)?;
     
     let c = super::bindings::ProjectGaussians{glob_scale,fx,fy,cx,cy,img_height,img_width,tile_bounds,clip_thresh};
     
@@ -156,24 +158,31 @@ pub fn ProjectGaussians(num_points : i64,
     Ok((cov3d,xys,depth,radii,conics,compensation,num_tiles_hit))
 }
 
-/* #[cfg(test)]
+ #[cfg(test)]
 mod tests {
     use super::*;
 
     
 
 
-    fn projection_matrix(fx: f32, fy: f32, W: u32, H: u32, n: f32, f: f32) -> candle_core::Tensor{
-        let projmat = candle_core::Tensor::from_data(&[2.0 * fx / W, 0.0, 0.0, 0.0, 0.0, 2.0 * fy / H, 0.0, 0.0, 0.0, 0.0, (f + n) / (f - n), -2.0 * f * n / (f - n), 0.0, 0.0, 1.0, 0.0], &candle_core::Shape::from_dims(&[4,4]));
-        projmat
+    fn projection_matrix(fx: f32, fy: f32, W: u32, H: u32, n: f32, f: f32,device:&Device) -> candle_core::Tensor{
+        let H = H as f32;
+        let W = W as f32;
+        let projmat = candle_core::Tensor::from_slice(&[2.0 * fx / W, 0.0, 0.0, 0.0, 0.0, 2.0 * fy / H, 0.0, 0.0, 0.0, 0.0, (f + n) / (f - n), -2.0 * f * n / (f - n), 0.0, 0.0, 1.0, 0.0], &candle_core::Shape::from_dims(&[4,4]),device);
+        match projmat {
+            Ok(projmat) => projmat,
+            Err(e) => panic!("Erreur lors de la création de la matrice de projection : {}", e),
+        }
     }
     
     fn check_close(a: &candle_core::Tensor, b: &candle_core::Tensor, atol: f32, rtol: f32){
-        let diff = a.sub(b);
-        let diff = diff.abs();
-        let diff = diff.detach();
-        let max = diff.max();
-        let mean = diff.mean();
+        let diff = a.sub(b)?;
+        let mut max = diff.max();
+        let mut mean = diff.mean();
+        if max < 0.0 {
+            max = -diff.min();
+            mean = -mean;
+        }
         assert!(max <= atol,
                 "La valeur max de la différence est supérieure à la tolérance : max = {}, atol = {}", 
                 max, 
@@ -202,27 +211,28 @@ mod tests {
      */
     
     #[test]
-    fn test_project_gaussians_fwd_small(){
+    fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>>{
+        let device = &Device::new_cuda(0)?;
         let num_points = 2;
-        let means3d = candle_core::Tensor::from_data(&[0.0, 0.0, 10.0, 0.0, 0.0, 10.0], &candle_core::Shape::from_dims(&[2,3]));
-        let scales = candle_core::Tensor::from_data(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0], &candle_core::Shape::from_dims(&[2,3]));
+        let means3d = candle_core::Tensor::from_slice(&[0.0, 0.0, 10.0, 0.0, 0.0, 10.0], &candle_core::Shape::from_dims(&[2,3]),device)?;
+        let scales = candle_core::Tensor::from_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0], &candle_core::Shape::from_dims(&[2,3]),device)?;
         let glob_scale = 1.0;
-        let quats = candle_core::Tensor::from_data(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[2,4]));
-        let quats = quats / quats.norm(candle_core::Norm::L2, &[1], true);
+        let quats = candle_core::Tensor::from_slice(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[2,4]),device)?;
+        //let quats = quats / quats.norm(candle_core::Norm::L2, &[1], true);
         let H = 512;
         let W = 512;
-        let cx = W / 2;
-        let cy = H / 2;
-        let fx = W / 2;
-        let fy = W / 2;
+        let cx = W as f32 / 2.0;
+        let cy = H as f32 / 2.0;
+        let fx = W as f32 / 2.0;
+        let fy = W as f32 / 2.0;
         let clip_thresh = 0.01;
-        let viewmat = candle_core::Tensor::from_data(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[4,4]));
-        let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0);
+        let viewmat = candle_core::Tensor::from_slice(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[4,4]),device)?;
+        let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0,device);
         let fullmat = projmat.matmul(&viewmat);
         let BLOCK_X = 16;
         let BLOCK_Y = 16;
         let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
-        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(num_points, means3d, scales, glob_scale, quats, viewmat, projmat, fx, fy, cx, cy, H, W, tile_bounds, clip_thresh);
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(&means3d, &scales, glob_scale, &quats, &viewmat, &projmat, fx, fy, cx, cy, H as u32, W as u32, tile_bounds, clip_thresh)?;
         /*cov3d:  tensor([[1., 0., 0., 1., 0., 1.],
         [1., 0., 0., 1., 0., 1.]], device='cuda:0')
         xys:  tensor([[255.5000, 255.5000],
@@ -233,13 +243,13 @@ mod tests {
                 [0.0049, -0.0000, 0.0049]], device='cuda:0')
         compensation:  tensor([0.9985, 0.9985], device='cuda:0')
         num_tiles_hit:  tensor([36, 36], device='cuda:0', dtype=torch.int32) */
-        let python_cov3d = candle_core::Tensor::from_data(&[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[2,6]));
-        let python_xys = candle_core::Tensor::from_data(&[255.5000, 255.5000, 255.5000, 255.5000], &candle_core::Shape::from_dims(&[2,2]));
-        let python_depths = candle_core::Tensor::from_data(&[18.0, 18.0], &candle_core::Shape::from_dims(&[2]));
-        let python_radii = candle_core::Tensor::from_data(&[43, 43], &candle_core::Shape::from_dims(&[2]));
-        let python_conics = candle_core::Tensor::from_data(&[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049], &candle_core::Shape::from_dims(&[2,3]));
-        let python_compensation = candle_core::Tensor::from_data(&[0.9985, 0.9985], &candle_core::Shape::from_dims(&[2]));
-        let python_num_tiles_hit = candle_core::Tensor::from_data(&[36, 36], &candle_core::Shape::from_dims(&[2]));
+        let python_cov3d = candle_core::Tensor::from_slice(&[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[2,6]),device)?;
+        let python_xys = candle_core::Tensor::from_slice(&[255.5000, 255.5000, 255.5000, 255.5000], &candle_core::Shape::from_dims(&[2,2]),device)?;
+        let python_depths = candle_core::Tensor::from_slice(&[18.0, 18.0], &candle_core::Shape::from_dims(&[2]),device)?;
+        let python_radii = candle_core::Tensor::from_slice(&[43 as i64, 43 as i64], &candle_core::Shape::from_dims(&[2]),device)?;
+        let python_conics = candle_core::Tensor::from_slice(&[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049], &candle_core::Shape::from_dims(&[2,3]),device)?;
+        let python_compensation = candle_core::Tensor::from_slice(&[0.9985, 0.9985], &candle_core::Shape::from_dims(&[2]),device)?;
+        let python_num_tiles_hit = candle_core::Tensor::from_slice(&[36 as i64, 36 as i64], &candle_core::Shape::from_dims(&[2]),device)?;
         check_close(&cov3d, &python_cov3d, 1e-5, 1e-5);
         check_close(&xys, &python_xys, 1e-5, 1e-5);
         check_close(&depths, &python_depths, 1e-5, 1e-5);
@@ -247,10 +257,11 @@ mod tests {
         check_close(&conics, &python_conics, 1e-5, 1e-5);
         check_close(&compensation, &python_compensation, 1e-5, 1e-5);
         check_close(&num_tiles_hit, &python_num_tiles_hit, 1e-5, 1e-5);
+        Ok(())
     }
 
 
-    #[test]
+    /* #[test]
     #[ignore]
     fn full_test_project_gaussians_forward(){
         let num_points = 100;
@@ -289,6 +300,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_dummy_fwd() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let means3d = candle_core::Tensor::randn((100, 3), &candle_core::Device::cuda(0), true);
         let scales = candle_core::Tensor::rand((100, 3), &candle_core::Device::cuda(0)) + 0.2;
@@ -312,6 +324,6 @@ mod tests {
 
         let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = c.dummy_fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
         Ok(())
-    }
+    } */
 
-} */
+} 

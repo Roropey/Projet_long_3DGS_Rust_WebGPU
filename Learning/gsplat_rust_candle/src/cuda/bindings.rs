@@ -2,12 +2,11 @@
 use super::cuda_kernels::FORWARD;
 use candle_core::CustomOp1;
 use candle_core::backend::BackendStorage;
-use candle_core::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig};
+use candle_core::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig,DeviceRepr};
 use candle_core::cuda_backend::{WrapErr,CudaDevice};
 use candle_core::backend::BackendDevice;
 use candle_core::{Layout, Result, Shape};
 use candle_core::CpuStorage;
-
 
 pub struct ProjectGaussians{
     pub glob_scale : f32,
@@ -43,28 +42,25 @@ impl ProjectGaussians {
         candle_core::CudaStorage, Shape,
         candle_core::CudaStorage, Shape,)>
         { //Surement d'autre verif à faire dans le code pour voir si les inputs sont bon (taille, rank, etc...)
-            use candle_core::backend::BackendStorage;
-            use candle_core::cuda_backend::cudarc::driver::{LaunchAsync, LaunchConfig};
-            use candle_core::cuda_backend::WrapErr;
-            let devm3D = means3d_storage.device().clone();
+            let devm3d = means3d_storage.device().clone();
             let devsc = scale_storage.device().clone();
             let devq = quats_storage.device().clone();
             let devproj = projmat_storage.device().clone();
             let devview = viewmat_storage.device().clone();
-            if ! devm3D.same_device(&devsc) || ! devm3D.same_device(&devq) {//|| not devm3D.same_device(&devproj) || not devm3D.same_device(&devview) {
+            if ! devm3d.same_device(&devsc) || ! devm3d.same_device(&devq) {//|| not devm3d.same_device(&devproj) || not devm3d.same_device(&devview) {
                 candle_core::bail!("all inputs must be on the same device");
             }
-            let dev = devm3D;
+            let dev = devm3d;
 
-            let slice_m3D = means3d_storage.as_cuda_slice::<f32>()?;
+            let slice_m3d = means3d_storage.as_cuda_slice::<f32>()?;
             let slice_sc = scale_storage.as_cuda_slice::<f32>()?;
             let slice_q = quats_storage.as_cuda_slice::<f32>()?;
             let slice_view = viewmat_storage.as_cuda_slice::<f32>()?;
             let slice_proj = projmat_storage.as_cuda_slice::<f32>()?;
 
-            let slice_m3D = match means3d_layout.contiguous_offsets() {
+            let slice_m3d = match means3d_layout.contiguous_offsets() {
                 None => candle_core::bail!("means 3d input has to be contiguous"),
-                Some((o1, o2)) => slice_m3D.slice(o1..o2),
+                Some((o1, o2)) => slice_m3d.slice(o1..o2),
             };
             let slice_sc = match scale_layout.contiguous_offsets() {
                 None => candle_core::bail!("scale input has to be contiguous"),
@@ -95,38 +91,45 @@ impl ProjectGaussians {
             let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
             let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
             
-            let params = (
-                &slice_m3D,
-                &slice_sc,
-                self.glob_scale,
-                &slice_q,
-                &slice_view,
-                &slice_proj,
-                [self.fx,self.fy,self.cx,self.cy],
-                self.img_height,self.img_width,
-                [self.tile_bounds.0,self.tile_bounds.1,self.tile_bounds.2],
-                self.clip_thresh,
-                &dst_cov3d,
-                &dst_xys_d,
-                &dst_depth,
-                &dst_radii,
-                &dst_conics,
-                &dst_compensation,
-                &dst_num_tiles_hit
-            );
+            let params : &mut [_] = & mut [
+                (&slice_m3d).as_kernel_param(),
+                (&slice_sc).as_kernel_param(),
+                self.glob_scale.as_kernel_param(),
+                (&slice_q).as_kernel_param(),
+                (&slice_view).as_kernel_param(),
+                (&slice_proj).as_kernel_param(),
+                self.fx.as_kernel_param(),
+                self.fy.as_kernel_param(),
+                self.cx.as_kernel_param(),
+                self.cy.as_kernel_param(),
+                self.img_height.as_kernel_param(),
+                self.img_width.as_kernel_param(),
+                self.tile_bounds.0.as_kernel_param(),
+                self.tile_bounds.1.as_kernel_param(),
+                self.tile_bounds.2.as_kernel_param(),
+                self.clip_thresh.as_kernel_param(),
+                (&dst_cov3d).as_kernel_param(),
+                (&dst_xys_d).as_kernel_param(),
+                (&dst_depth).as_kernel_param(),
+                (&dst_radii).as_kernel_param(),
+                (&dst_conics).as_kernel_param(),
+                (&dst_compensation).as_kernel_param(),
+                (&dst_num_tiles_hit).as_kernel_param()
+            ];
 
-            let N_THREADS = 256; //TODO : voir si on peut le mettre en argument
-            let N_BLOCKS = (num_points + N_THREADS - 1) / N_THREADS;
-            let N_THREADS = N_THREADS as u32;
-            let N_BLOCKS = N_BLOCKS as u32;
+            
+            
+            let n_threads = 256; //TODO : voir si on peut le mettre en argument
+            let n_blocks = (num_points + n_threads - 1) / n_threads;
+            let n_threads = n_threads as u32;
+            let n_blocks = n_blocks as u32;
             let cfg = LaunchConfig {
-                grid_dim: (N_BLOCKS, 1, 1),
-                block_dim: (N_THREADS, 1, 1),
+                grid_dim: (n_blocks, 1, 1),
+                block_dim: (n_threads, 1, 1),
                 shared_mem_bytes: 0,
             };
 
-            //mdr func.launch peut lancer des launchs que jusqu'à 11 paramètres, sans raison particulière xd
-            //unsafe { func.launch(cfg, params) }.w()?;
+            unsafe { func.launch(cfg, params) }.w()?;
             
             let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev.clone());
             let dst_xys_d = candle_core::CudaStorage::wrap_cuda_slice(dst_xys_d, dev.clone());
