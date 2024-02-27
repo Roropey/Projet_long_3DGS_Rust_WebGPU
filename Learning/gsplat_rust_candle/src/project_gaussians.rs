@@ -1,7 +1,8 @@
 use candle::Tensor;
 use candle_core as candle;
 
-mod cuda::customop.rs;
+
+use crate::cuda::customop;
 
 
 fn project_gaussian(

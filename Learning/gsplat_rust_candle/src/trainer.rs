@@ -7,8 +7,8 @@ use candle_nn::{AdamW, Optimizer, ParamsAdamW,  ops::sigmoid};
 use num;
 //use tch::nn::Adam;
 
-mod project_gaussians;
-mod rasterize;
+use crate::project_gaussians;
+use crate::rasterize;
 
 pub struct Trainer{
     device: Device,
@@ -43,8 +43,8 @@ impl Trainer {
         let block_x = 16;
         let block_y = 16;
         let fov_x = std::f64::consts::PI / 2.0;
-        let h = gt_image.shape().dims()[0];
-        let w = gt_image.shape().dims()[1];
+        let h = gt_image.dim(0).unwrap();
+        let w = gt_image.dim(1).unwrap();
         let focal = 0.5*(w as f64) / ((0.5*fov_x).tan());
         let tile_bounds = (
             num::integer::div_floor(w as isize + block_x as isize - 1, block_x as isize),
