@@ -2,9 +2,9 @@ use candle_core as candle;
 use candle::{CustomOp2, CudaStorage, CpuStorage, Layout, Shape, Tensor, Device};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW};
 #[cfg(feature = "cuda")]
-use crate::cuda_kernels::SH;
+use super::cuda::cuda_kernels::SH;
 
-use crate::cuda_kernels::SH;
+
 
 fn num_sh_bases(degree:usize) -> usize{
     if degree == 0 {

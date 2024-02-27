@@ -5,8 +5,12 @@
 namespace cg = cooperative_groups;
 
 __global__ void nd_rasterize_backward_kernel(
-    const dim3 tile_bounds,
-    const dim3 img_size,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
     const unsigned channels,
     const int32_t* __restrict__ gaussians_ids_sorted,
     const int2* __restrict__ tile_bins,
@@ -28,6 +32,9 @@ __global__ void nd_rasterize_backward_kernel(
     if (channels > MAX_REGISTER_CHANNELS && workspace == nullptr) {
         return;
     }
+    
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
     // current naive implementation where tile data loading is redundant
     // TODO tile data should be shared between tile threads
     int32_t tile_id = blockIdx.y * tile_bounds.x + blockIdx.x;
@@ -136,8 +143,12 @@ inline __device__ void warpSum(float& val, cg::thread_block_tile<32>& tile){
 }
 
 __global__ void rasterize_backward_kernel(
-    const dim3 tile_bounds,
-    const dim3 img_size,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
     const int32_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
@@ -154,6 +165,9 @@ __global__ void rasterize_backward_kernel(
     float3* __restrict__ v_rgb,
     float* __restrict__ v_opacity
 ) {
+    
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
     auto block = cg::this_thread_block();
     int32_t tile_id =
         block.group_index().y * tile_bounds.x + block.group_index().x;
@@ -323,7 +337,9 @@ __global__ void project_gaussians_backward_kernel(
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
     const float4 intrins,
-    const dim3 img_size,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
     const float* __restrict__ cov3d,
     const int* __restrict__ radii,
     const float3* __restrict__ conics,
@@ -340,6 +356,7 @@ __global__ void project_gaussians_backward_kernel(
     if (idx >= num_points || radii[idx] <= 0) {
         return;
     }
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
     float3 p_world = means3d[idx];
     float fx = intrins.x;
     float fy = intrins.y;

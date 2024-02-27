@@ -5,7 +5,7 @@ use candle_core::cuda_backend::{WrapErr,CudaDevice};
 use candle_core as candle;
 use std::ops::Not;
 #[cfg(feature = "cuda")]
-use crate::cuda::cuda_kernels::{FORWARD, BINDINGS};
+use super::cuda::cuda_kernels::{FORWARD, BINDINGS};
 
 // Fonction copié sur https://github.com/huggingface/candle/pull/1389/files
 // Argsort pour tensor à 1 dimension... A voir si ça marche dans notre cas
@@ -162,7 +162,9 @@ pub fn map_gaussian_to_intersects(
         &slice_depths,
         &slice_radii,
         &slice_cum_tiles_hit,
-        tile_bounds,
+        tile_bounds.0,
+        tile_bounds.1,
+        tile_bounds.2,
         &dst_isect_ids,
         &dst_gaussian_ids
     );

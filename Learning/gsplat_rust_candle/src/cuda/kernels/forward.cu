@@ -18,8 +18,12 @@ __global__ void project_gaussians_forward_kernel(
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
     const float4 intrins,
-    const dim3 img_size,
-    const dim3 tile_bounds,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
     const float clip_thresh,
     float* __restrict__ covs3d,
     float2* __restrict__ xys,
@@ -35,6 +39,11 @@ __global__ void project_gaussians_forward_kernel(
     }
     radii[idx] = 0;
     num_tiles_hit[idx] = 0;
+
+
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
+
 
     float3 p_world = means3d[idx];
     // printf("p_world %d %.2f %.2f %.2f\n", idx, p_world.x, p_world.y,
@@ -108,7 +117,9 @@ __global__ void map_gaussian_to_intersects(
     const float* __restrict__ depths,
     const int* __restrict__ radii,
     const int32_t* __restrict__ cum_tiles_hit,
-    const dim3 tile_bounds,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
     int64_t* __restrict__ isect_ids,
     int32_t* __restrict__ gaussian_ids
 ) {
@@ -117,6 +128,8 @@ __global__ void map_gaussian_to_intersects(
         return;
     if (radii[idx] <= 0)
         return;
+    // Création de tile_bounds à partir des valeurs
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
     // get the tile bbox for gaussian
     uint2 tile_min, tile_max;
     float2 center = xys[idx];
@@ -171,8 +184,12 @@ __global__ void get_tile_bin_edges(
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 __global__ void nd_rasterize_forward(
-    const dim3 tile_bounds,
-    const dim3 img_size,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
     const unsigned channels,
     const int32_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
@@ -185,6 +202,9 @@ __global__ void nd_rasterize_forward(
     float* __restrict__ out_img,
     const float* __restrict__ background
 ) {
+    
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
     // current naive implementation where tile data loading is redundant
     // TODO tile data should be shared between tile threads
     int32_t tile_id = blockIdx.y * tile_bounds.x + blockIdx.x;
@@ -253,8 +273,12 @@ __global__ void nd_rasterize_forward(
 }
 
 __global__ void rasterize_forward(
-    const dim3 tile_bounds,
-    const dim3 img_size,
+    const uint tile_bounds_x,
+    const uint tile_bounds_y,
+    const uint tile_bounds_z,
+    const uint img_size_x,
+    const uint img_size_y,
+    const uint img_size_z,
     const int32_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
@@ -269,6 +293,8 @@ __global__ void rasterize_forward(
     // each thread draws one pixel, but also timeshares caching gaussians in a
     // shared tile
 
+    dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
+    dim3 img_size = {img_size_x,img_size_y,img_size_z};
     auto block = cg::this_thread_block();
     int32_t tile_id =
         block.group_index().y * tile_bounds.x + block.group_index().x;
