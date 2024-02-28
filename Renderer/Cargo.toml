@@ -1,25 +1,26 @@
 [package]
 resolver = "2"
-name = "splatter"
+name = "projetLong3DGaussianSplatting"
 version = "0.0.1"
-authors = ["Alexander Meißner <AlexanderMeissner@gmx.net>"]
+authors = ["Ghislain Réveiller & Clémentine Grethen"]
 description = "A gaussian splat render engine"
-repository = "https://github.com/Lichtso/splatter/"
-keywords = ["3d", "graphics", "splats", "point-cloud"]
-license = "MIT"
+repository = "https://github.com/Roropey/Projet_long_3DGS_Rust_WebGPU/tree/master"
 edition = "2018"
 
 [dependencies]
 wgpu = "0.17.0"
 geometric_algebra = "0.3.0"
 bytemuck = "1.5"
-
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures = "0.3"
 
 ### Showcase Example ###
 
 [dev-dependencies]
 winit = "0.28.7"
 log = "0.4"
+
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-Oz", "--enable-mutable-globals"]

@@ -406,27 +406,30 @@ fn exclusiveScan(gl_LocalInvocationIndex: u32, value: u32) -> u32 {
 
 // Compute shader pour calculer radii
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(66)
 fn computeRadii(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let id = global_id.x;
-    if (id >= arrayLength(&sorted_entries)) {
-        return; // S'assurer que l'ID ne dépasse pas le nombre de splats triés
-    }
+    // Assurez-vous que `id` est dans les limites des buffers pour éviter les débordements.
+    // if (id >= arrayLength(&sorted_entries)) {
+    //     return;
+    // }
+        
 
-    let sorted_index = sorted_entries[id].value; // Utiliser l'indice trié pour accéder au splat
+    let sorted_index = id;
+   
+
     let world_position = splats[sorted_index].center;
     let covariance = projectedCovarianceOfEllipsoid(splats[sorted_index].scale * uniforms.splat_scale, splats[sorted_index].rotation, world_position);
-    let mid: f32 = 0.5 * (covariance[0][0] + covariance[1][1]); // Assurez-vous que c'est covariance[1][1] pour une matrice 2D
+    let mid: f32 = 0.5 * (covariance[0][0] + covariance[1][1]);
     let det: f32 = covariance[0][0] * covariance[1][1] - covariance[0][1] * covariance[1][0];
     let lambda1: f32 = mid + sqrt(max(0.1, mid * mid - det));
     let lambda2: f32 = mid - sqrt(max(0.1, mid * mid - det));
 
-    // Calcul du "rayon" basé sur les valeurs propres de la matrice de covariance
-    let radius: f32 = ceil(3.0 * sqrt(max(lambda1, lambda2)));
-
-    // Stockage du rayon calculé dans le buffer des radii
-    radii[sorted_index] = radius; // Stocker le rayon à l'indice original, si nécessaire
+    let radius: f32 = (3.0 * sqrt(max(lambda1, lambda2)));
+    radii[sorted_index] = radius;
 }
+
+
 
 
 @compute @workgroup_size(WORKGROUP_INVOCATIONS_C)

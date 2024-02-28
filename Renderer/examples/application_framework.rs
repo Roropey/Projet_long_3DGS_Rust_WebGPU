@@ -81,6 +81,7 @@ impl ApplicationManager {
      
 
     }
+   
 
    
     async fn setup(event_loop: &winit::event_loop::EventLoop<()>, title: &'static str) -> Self {
@@ -208,6 +209,7 @@ impl ApplicationManager {
                     let frame = self.surface.get_current_texture().unwrap();
                     application.render(&self.device, &mut self.queue, &frame, frame_time);
                     frame.present();
+                    
                 }
                 _ => {}
             }

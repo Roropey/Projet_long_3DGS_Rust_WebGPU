@@ -2,7 +2,7 @@ use geometric_algebra::{
     ppga3d::{Rotor, Translator},
     GeometricProduct, One, Signum, Transformation,
 };
-use splatter::{
+use projetLong3DGaussianSplatting::{
     renderer::{Configuration, DepthSorting, Renderer},
     scene::Scene,
 };
@@ -11,7 +11,6 @@ use std::{collections::HashSet, env, fs::File};
 mod application_framework;
 
 const LOAD_CHUNK_SIZE: usize = 0; // 1024 * 32;
-
 
 
 struct Application {

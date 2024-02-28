@@ -13,6 +13,10 @@ use std::fs::File;
 use std::io::Write;
 use std::any::Any;
 use std::path::Path;
+use serde_json::to_writer_pretty;
+
+use futures::executor::block_on;
+
 
 /// Selects how splats are sorted by their distance to the camera
 pub enum DepthSorting {
@@ -106,6 +110,7 @@ impl Renderer {
         let sorting_buffer_size =
             (radix_base * (radix_digit_places + max_tile_count_c) * std::mem::size_of::<u32>()) + std::mem::size_of::<u32>() * 5;
         let mut string: String = include_str!("shaders.wgsl").into();
+
         // Pipeline overrides are not implemented in wgpu yet
         // injection des paramètres dnas les shaders Webgpu
         for (name, value) in &[
@@ -214,17 +219,6 @@ impl Renderer {
                     count: None,
                 },
                 splats_layout,
-                wgpu::BindGroupLayoutEntry {
-                    binding: 7, // Assurez-vous que ce binding est unique et non utilisé
-                    visibility: wgpu::ShaderStages::COMPUTE ,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<(u32, u32)>() as u64),
-
-                    },
-                    count: None,
-                },
             ],
         });
 
@@ -246,6 +240,17 @@ impl Renderer {
                 entries_a_layout,
                 entries_b_layout,
                 splats_layout,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7, // Assurez-vous que ce binding est unique et non utilisé
+                    visibility: wgpu::ShaderStages::COMPUTE ,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<f32>() as u64),
+
+                    },
+                    count: None,
+                },
             ],
         });
         let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -362,21 +367,28 @@ impl Renderer {
 
         // calcul du Radii
         // création du buffer qui contiendra les info pour le calcul du Radii
-        let radii_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (config.max_splat_count * std::mem::size_of::<f32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
+        /// Cela permet de visualiser que le calcul du bffer a bien fonctionner et qu'il y'a bien splat_count radii
+        let radii_buffer_size = (config.max_splat_count * std::mem::size_of::<f32>()) as u64;
+        let radii_data = vec![100.0f32; config.max_splat_count]; // Création d'un vecteur rempli de 0.0 pour chaque élément du buffer.
+
+        let radii_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Radii Buffer"),
+            contents: bytemuck::cast_slice(&radii_data),
+
+
+            usage:wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST ,
         });
+        
+       
 
         let radii_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&render_bind_group_layout],
+            bind_group_layouts: &[&compute_bind_group_layout],
             push_constant_ranges: &[],
         });
         let radii_compute_a_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Mon Pipeline de Calcul"),
-            layout: Some(&radii_pipeline_layout),
+            layout: Some(&compute_pipeline_layout),
             module: &shader_module,
             entry_point: "computeRadii",
         });
@@ -402,7 +414,7 @@ impl Renderer {
             entry_buffer_a,
             entry_buffer_b,
             radii_buffer,
-            radii_compute_a_pipeline
+            radii_compute_a_pipeline,
         }
     }
     
@@ -469,30 +481,7 @@ impl Renderer {
         }];
         //les données uniformes dans le buffer uniforme (uniform_buffer) utilisé par le shader. 
         queue.write_buffer(&self.uniform_buffer, 0, transmute_slice::<_, u8>(uniform_data));
-        println!("Taille du buffer : {}", self.uniform_buffer.size());
-        if let Some(label) = self.uniform_buffer.label() {
-            println!("Étiquette du buffer : {}", label);
-        } else {
-            println!("Pas d'étiquette définie pour le buffer");
-        }                // let path = Path::new("src/res.bin");
-        // let file = File::create(path).expect("Failed to create file");
-        // let mut file = Some(file);
-
-        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.uniform_buffer.slice(..), move |buffer_result| {
-        //     if let Some(mut file) = file.take() { // Prend possession du fichier dans la fermeture
-        //         if let Ok(download_buffer) = buffer_result {
-        //             println!("AHHAHAHAHHAHAHHAHHAHHAHAHHAA");
-
-        //             let data = transmute_slice::<u8, u32>(&*download_buffer);
-        //             for &value in data.iter() {
-        //                 file.write_all(&value.to_ne_bytes()).expect("Failed to write data to file");
-        //             }
-        //         } else {
-        //             eprintln!("Failed to read buffer: {:?}", buffer_result.err());
-        //         }
-        //     }
-        // });
-        // on initialise un buffer de commande
+        
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         if matches!(self.config.depth_sorting, DepthSorting::Gpu | DepthSorting::GpuIndirectDraw) {
             encoder.clear_buffer(&self.sorting_buffer, 0, None);
@@ -518,13 +507,18 @@ impl Renderer {
                 compute_pass.dispatch_workgroups(1, ((splat_count + self.workgroup_entries_c - 1) / self.workgroup_entries_c) as u32, 1);
             }
         }
+        let workgroups_x = ((splat_count + 64) /65) as u32;
+
+
         {let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-        compute_pass.set_bind_group(0, &scene.render_bind_group, &[]);
-        compute_pass.set_pipeline(&self.radii_compute_a_pipeline);}
-         
+        compute_pass.set_bind_group(0, &scene.compute_bind_groups[1], &[]);
 
-
+        compute_pass.set_pipeline(&self.radii_compute_a_pipeline);
+        compute_pass.dispatch_workgroups(workgroups_x, 1, 1);    }
        
+
+
+    
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -546,24 +540,72 @@ impl Renderer {
                 render_pass.draw(0..4, 0..splat_count as u32);
             }
         }
-        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(self.sorting_buffer_size as u64 - 4 * 5..self.sorting_buffer_size as u64), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-        //     println!("WESH{:X?}", transmute_slice::<u8, u32>(&*buffer.unwrap()));
-        // });
-        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.sorting_buffer.slice(0..self.sorting_buffer_size as u64 - 4 * 5), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-        //     println!("WSH{:X?}", transmute_slice::<u8, [u32; 256]>(&*buffer.unwrap()));
-        // });
-        // wgpu::util::DownloadBuffer::read_buffer(device, queue, &self.entry_buffer_a.slice(..), |buffer: Result<wgpu::util::DownloadBuffer, wgpu::BufferAsyncError>| {
-        //     println!("WESh{:X?}", transmute_slice::<u8, [(u32, u32); 1024]>(&*buffer.unwrap()));
-        // });
-        // Lecture du contenu du buffer radii_buffer
-        // read_and_print_radii_buffer(device, queue, &self.entry_buffer_b);
-       
+        
+        
 
+            // VERIF DE RADII:
+        let buffer_size = (self.config.max_splat_count * std::mem::size_of::<f32>()) as u64;
+        
+        let copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Copy Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Encoder la commande pour copier les données du radii_buffer vers le copy_buffer
+        encoder.copy_buffer_to_buffer(&self.radii_buffer, 0, &copy_buffer, 0, buffer_size);
+        queue.submit(Some(encoder.finish()));
+        // Attendre que la copie soit terminée
+        device.poll(wgpu::Maintain::Wait);
+        
+        
+        let buffer_slice = copy_buffer.slice(..);
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        device.poll(wgpu::Maintain::Wait); // S'assurer que la demande de mappage est traitée
+        let mut sum = 0;
+        let mut max_radius_not_100 = f32::NEG_INFINITY; // Initialisation avec la plus petite valeur possible
+        let mut iteration_count = 0; // Variable de comptage des itérations
+
+        if let Ok(Ok(())) = futures::executor::block_on(receiver) {
+            // Accès aux données du buffer de copie
+            let data = buffer_slice.get_mapped_range();
+            let radii: &[f32] = bytemuck::cast_slice(&data);
+            for &radius in radii.iter() {
+                println!("Radius: {}", radius);
+                
+                if radius != 100.0 {
+                    sum += 1;
+
+                }
+                iteration_count += 1; 
+
+                if radius != 100.0 && radius > max_radius_not_100 {
+                    max_radius_not_100 = radius; // Mettre à jour le maximum
+                }
+                // if iteration_count >= 100 {
+                //     break; // Sortir de la boucle après 10 itérations
+                // }
+                
+                
+            }
+
+            // Démapper le buffer après utilisation
+            drop(data);
+            copy_buffer.unmap();
+            println!("La somme est : {}", sum);
+            println!("La somme est : {}", splat_count);
+            println!("La valeur maximale de radii qui n'est pas égale à 100.0 est : {}", max_radius_not_100);
+
+
+
+        }
+
+        
        
         
 
-        queue.submit(Some(encoder.finish()));
-       
 
     }
 }
