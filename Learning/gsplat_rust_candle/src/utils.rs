@@ -4,7 +4,7 @@ use candle_core::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig};
 use candle_core::cuda_backend::{WrapErr,CudaDevice};
 use candle_core as candle;
 use std::ops::Not;
-#[cfg(feature = "cuda")]
+//#[cfg(feature = "cuda")]
 use super::cuda::cuda_kernels::{FORWARD, BINDINGS};
 
 // Fonction copié sur https://github.com/huggingface/candle/pull/1389/files
