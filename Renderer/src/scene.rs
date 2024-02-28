@@ -63,7 +63,7 @@ impl Scene {
             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                 buffer: &renderer.radii_buffer,
                 offset: 0,
-                size: None, // Utilisez la totalité du buffer
+                size: std::num::NonZeroU64::new((splat_count* std::mem::size_of::<f32>()) as u64), // Utilisez la totalité du buffer
             }),
         };
         let sorting_bind_group_entry = wgpu::BindGroupEntry {
@@ -124,6 +124,8 @@ impl Scene {
                             }),
                         },
                         splats_bind_group_entry.clone(),
+                        radii_bind_group_entry.clone(),
+
                     ],
                 })
             })
@@ -148,7 +150,7 @@ impl Scene {
                     }),
                 },
                 splats_bind_group_entry,
-                radii_bind_group_entry,
+                
 
             ],
         });

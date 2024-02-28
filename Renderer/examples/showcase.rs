@@ -2,7 +2,7 @@ use geometric_algebra::{
     ppga3d::{Rotor, Translator},
     GeometricProduct, One, Signum, Transformation,
 };
-use splatter::{
+use projetLong3DGaussianSplatting::{
     renderer::{Configuration, DepthSorting, Renderer},
     scene::Scene,
 };
@@ -11,7 +11,6 @@ use std::{collections::HashSet, env, fs::File};
 mod application_framework;
 
 const LOAD_CHUNK_SIZE: usize = 0; // 1024 * 32;
-
 
 
 struct Application {
@@ -100,7 +99,7 @@ impl application_framework::Application for Application {
         }));
     }
 
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, frame_time: f32) {
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, texture: &wgpu::Texture, frame_time: f32){ //, output_buffer: wgpu::Buffer) {
         if self.chunks_left_to_load > 0 {
             self.chunks_left_to_load -= 1;
             let load_range = self.chunks_left_to_load * LOAD_CHUNK_SIZE..(self.chunks_left_to_load + 1) * LOAD_CHUNK_SIZE;
@@ -109,9 +108,9 @@ impl application_framework::Application for Application {
         }
         let camera_motor = self.camera_translation.geometric_product(self.camera_rotation);
 
-        let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        //let frame_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer
-            .render_frame(device, queue, &frame_view, self.viewport_size, camera_motor, &self.scene);
+            .render_frame(device, queue, &texture, self.viewport_size, camera_motor, &self.scene); //, &self.scene,output_buffer);
     }
    
 }

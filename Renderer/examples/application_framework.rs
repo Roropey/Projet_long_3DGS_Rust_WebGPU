@@ -52,7 +52,7 @@ impl<'a> Spawner<'a> {
 pub trait Application {
     fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self;
     fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration);
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, frame_time: f32);
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::Texture, frame_time: f32);//, output_buffer: wgpu::Buffer);
 }
 
 
@@ -81,6 +81,7 @@ impl ApplicationManager {
      
 
     }
+   
 
    
     async fn setup(event_loop: &winit::event_loop::EventLoop<()>, title: &'static str) -> Self {
@@ -206,8 +207,9 @@ impl ApplicationManager {
                     // Code pour le rendu ici
                     let frame_time = 0.0; // Temps d'image factice
                     let frame = self.surface.get_current_texture().unwrap();
-                    application.render(&self.device, &mut self.queue, &frame, frame_time);
+                    application.render(&self.device, &mut self.queue, &frame.texture, frame_time);
                     frame.present();
+                    
                 }
                 _ => {}
             }
