@@ -13,7 +13,6 @@ use std::fs::File;
 use std::io::Write;
 use std::any::Any;
 use std::path::Path;
-use serde_json::to_writer_pretty;
 
 use futures::executor::block_on;
 
