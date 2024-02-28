@@ -1,7 +1,6 @@
 #include "config.h"
-#include <cuda_runtime.h>
-#include "glm.hpp"
-#include "gtc/type_ptr.hpp"
+#include "glm/glm.hpp"
+#include "glm/gtc/type_ptr.hpp"
 #include <iostream>
 
 inline __device__ float ndc2pix(const float x, const float W, const float cx) {

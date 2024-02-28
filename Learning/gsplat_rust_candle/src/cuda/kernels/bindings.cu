@@ -1,6 +1,4 @@
-
 #include "helpers.cuh"
-#include "sh.cuh"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 #include <cstdio>
@@ -9,9 +7,9 @@
 #include <cuda_runtime_api.h>
 #include <iostream>
 #include <math.h>
-#include <torch/extension.h>
 #include <tuple>
 
+namespace cg = cooperative_groups;
 
 // Une des fonctions CUDA utilisées par programme était dans bindins.cu donc copie de ce dernier en enlevent les transformation en torch::Tensor
 __global__ void compute_cov2d_bounds_kernel(

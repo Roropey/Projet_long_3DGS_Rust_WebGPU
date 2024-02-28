@@ -25,7 +25,12 @@ fn main() -> Result<()> {
     {
         for kdir in KERNEL_DIRS.iter() {
             let builder = bindgen_cuda::Builder::default()
-            .kernel_paths_glob(kdir.kernel_glob);
+            .kernel_paths_glob(kdir.kernel_glob)
+            .arg("--verbose")
+            .arg("-DWIN32_LEAN_AND_MEAN")
+            .arg("--expt-relaxed-constexpr")
+            .arg("-O3")
+            .arg("--use_fast_math");
             println!("cargo:info={builder:?}");
             let bindings = builder.build_ptx().unwrap();
             bindings.write(kdir.rust_target).unwrap()

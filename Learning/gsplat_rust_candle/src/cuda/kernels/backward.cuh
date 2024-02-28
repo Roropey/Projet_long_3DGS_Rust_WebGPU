@@ -1,5 +1,4 @@
-#include <cuda.h>
-#include <cuda_runtime.h>
+
 #include <cstdint>
 
 // for f : R(n) -> R(m), J in R(m, n),
@@ -14,9 +13,9 @@ __global__ void project_gaussians_backward_kernel(
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
     const float4 intrins,
-    const uint img_size_x,
-    const uint img_size_y,
-    const uint img_size_z,
+    const unsigned img_size_x,
+    const unsigned img_size_y,
+    const unsigned img_size_z,
     const float* __restrict__ cov3d,
     const int* __restrict__ radii,
     const float3* __restrict__ conics,
@@ -32,12 +31,12 @@ __global__ void project_gaussians_backward_kernel(
 
 // compute jacobians of output image wrt binned and sorted gaussians
 __global__ void nd_rasterize_backward_kernel(
-    const uint tile_bounds_x,
-    const uint tile_bounds_y,
-    const uint tile_bounds_z,
-    const uint img_size_x,
-    const uint img_size_y,
-    const uint img_size_z,
+    const unsigned tile_bounds_x,
+    const unsigned tile_bounds_y,
+    const unsigned tile_bounds_z,
+    const unsigned img_size_x,
+    const unsigned img_size_y,
+    const unsigned img_size_z,
     const unsigned channels,
     const int32_t* __restrict__ gaussians_ids_sorted,
     const int2* __restrict__ tile_bins,
@@ -58,12 +57,12 @@ __global__ void nd_rasterize_backward_kernel(
 );
 
 __global__ void rasterize_backward_kernel(
-    const uint tile_bounds_x,
-    const uint tile_bounds_y,
-    const uint tile_bounds_z,
-    const uint img_size_x,
-    const uint img_size_y,
-    const uint img_size_z,
+    const unsigned tile_bounds_x,
+    const unsigned tile_bounds_y,
+    const unsigned tile_bounds_z,
+    const unsigned img_size_x,
+    const unsigned img_size_y,
+    const unsigned img_size_z,
     const int32_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
