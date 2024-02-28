@@ -11,6 +11,8 @@ edition = "2018"
 wgpu = "0.17.0"
 geometric_algebra = "0.3.0"
 bytemuck = "1.5"
+image = { version = "0.24.8", default-features = false, features = ["png"] }
+oneshot = "0.1.6"  # One-shot send/receive channel
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"
