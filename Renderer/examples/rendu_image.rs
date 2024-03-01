@@ -1,21 +1,34 @@
 use geometric_algebra::{
     ppga3d::{Rotor, Translator},
-    GeometricProduct, One, Signum, Transformation,
+    GeometricProduct, One,
 };
 use projetLong3DGaussianSplatting::{
     renderer::{Configuration, DepthSorting, Renderer},
     scene::Scene,
 };
-use std::{collections::HashSet, env, fs::File};
-
-use crate::application_framework::Application;
-
-mod application_framework;
+use std::{env, fs::File};
 
 async fn run() {
     let file = File::open(env::args().nth(1).unwrap()).unwrap();
     let instance = wgpu::Instance::default();
-    
+
+    let event_loop = winit::event_loop::EventLoop::new();
+    let mut builder = winit::window::WindowBuilder::new();
+    builder = builder.with_title("title");
+    let window = builder.build(&event_loop).unwrap();
+
+    let (size, surface) = unsafe {
+        // taille de ma fenetre
+        let size = window.inner_size();
+        // surface webgpu associée à la fenetre 
+        // unsafe car la ceration d'une fenetre webgpu n'est opas sans risque 
+        // region de dessin en gros pour Webgpu 
+        let surface = instance.create_surface(&window).expect("WebGPU is not supported or not enabled");
+        (size, surface)
+    };
+    println!("{}",size.width);
+    println!("{}",size.height);
+
     let adapter = instance
     .request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -41,7 +54,7 @@ async fn run() {
         "Adapter does not support required features: {:?}",
         required_features - adapter_features
     );
-    let (device, queue) = adapter
+    let (device, mut queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
@@ -54,18 +67,13 @@ async fn run() {
         .expect("Unable to find a suitable GPU adapter!");
 
 
-    let texture = init_output_texture(&device, 1024);
-
-    let output_buffer_desc = create_texture_buffer_descriptor(&texture);
-    let output_buffer = device.create_buffer(&output_buffer_desc);
-    
-
+    let texture = init_output_texture(&device, 832 ,size.height);  //size.width
     let surface_configuration = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: wgpu::TextureFormat::Bgra8Unorm, 
-        view_formats: vec![wgpu::TextureFormat::Bgra8Unorm],
-        width: 1024,
-        height: 1024,
+        format: wgpu::TextureFormat::Rgba8Unorm, 
+        view_formats: vec![wgpu::TextureFormat::Rgba8Unorm],
+        width: 832,//size.width,
+        height: size.height,
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque, 
     };
@@ -91,31 +99,37 @@ async fn run() {
     //creation de la scene
     let mut scene = Scene::new(&device, &renderer, splat_count);
     
-
     scene.load_chunk(&queue, &mut file, file_header_size, 0..splat_count);
 
-    let viewport_size = wgpu::Extent3d::default();
-    let camera_rotation = Rotor::one();
-    let camera_translation = Translator::one();
+    let viewport_size = wgpu::Extent3d {
+        width: 832,
+        height: 600,
+        depth_or_array_layers: 1,};
+    println!("{}",viewport_size.height);
+    println!("{}",viewport_size.width);
+    let camera_rotation = Rotor::one(); //Rotor::new(1.0, 1.0,-1.0,1.0);
+    let camera_translation =Translator::one(); // Translator::new(1.0,-3.0026817933840073, 1.4007726437615275, -2.2284005560263305); //Translator::one();
 
     let camera_motor = camera_translation.geometric_product(camera_rotation);
 
-    renderer.render_frame(&device, &mut queue, &texture, viewport_size, camera_motor, &scene, &scene,output_buffer);
+    let output_buffer = renderer.render_frame( &device, &mut queue, &texture, viewport_size, camera_motor,&scene);
 
     let img = to_image(&device, &output_buffer, texture.width(), texture.height()).await;
 
-    img.save("image.png").unwrap();
+    img.save("image.jpg").unwrap();
+
+    print!("ok");
 
 }
 
 
-fn init_output_texture(device: &wgpu::Device, texture_size: u32) -> wgpu::Texture {
+fn init_output_texture(device: &wgpu::Device, width : u32, height : u32 ) -> wgpu::Texture {
     let texture_desc = wgpu::TextureDescriptor {
         label: Some("output_texture"),
         // The texture size. (layers is set to 1)
         size: wgpu::Extent3d {
-            width: texture_size,
-            height: texture_size,
+            width: width,
+            height: height,
             depth_or_array_layers: 1,
         },
         dimension: wgpu::TextureDimension::D2,
@@ -127,24 +141,10 @@ fn init_output_texture(device: &wgpu::Device, texture_size: u32) -> wgpu::Textur
         // COPY_SRC -> so that we can pull data out of the texture
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         // Specify the allowed formats when calling "texture.create_view()"
-        view_formats: &[],
+        view_formats: &[], //&[wgpu::TextureFormat::Rgba8Unorm],
     };
     device.create_texture(&texture_desc)
 }
-
-
-fn create_texture_buffer_descriptor(texture: &wgpu::Texture) -> wgpu::BufferDescriptor {
-    let texel_size = texture.format().block_size(None).unwrap();
-    wgpu::BufferDescriptor {
-        size: (texel_size * texture.width() * texture.height()).into(),
-        usage: wgpu::BufferUsages::COPY_DST
-            // this tells wpgu that we want to read this buffer from the cpu
-            | wgpu::BufferUsages::MAP_READ,
-        label: None,
-        mapped_at_creation: false,
-    }
-}
-
 
 async fn to_image(
     device: &wgpu::Device,

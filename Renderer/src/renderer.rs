@@ -426,8 +426,7 @@ impl Renderer {
         viewport_size: wgpu::Extent3d,
         camera_motor: Motor,
         scene: &Scene,
-        //output_buffer: wgpu::Buffer
-    ) {
+    )-> wgpu::Buffer{
         //camera_matrix contient la représentation matricielle de la transformation de la caméra, ce qui peut être utilisé dans le contexte de WebGPU pour déterminer la vue ou la projection d'objets 3D à l'écran.
         let camera_matrix = motor3d_to_mat4(&camera_motor);
         let view_matrix = motor3d_to_mat4(&camera_motor.inverse());
@@ -437,9 +436,9 @@ impl Renderer {
         let projection_matrix = perspective_projection(view_width, view_height, 1.0, 1000.0);
         let view_projection_matrix = mat4_multiplication(&projection_matrix, &view_matrix);
         let mut splat_count = scene.splat_count;
-
-        let frame_view = &texture.create_view(&Default::default());
-
+        println!("{}",splat_count);
+        let frame_view = &texture.create_view(&wgpu::TextureViewDescriptor::default());
+        println!("{}",scene.splat_buffer.size());
         if matches!(self.config.depth_sorting, DepthSorting::Cpu) {
             let mut entries: Vec<(u32, u32)> = (0..scene.splat_count)
                 .filter_map(|splat_index| {
@@ -524,7 +523,7 @@ impl Renderer {
     
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+                label: Some("render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: frame_view,
                     resolve_target: None,
@@ -543,8 +542,28 @@ impl Renderer {
                 render_pass.draw(0..4, 0..splat_count as u32);
             }
         }
+            // VERIF DE RADII:
+        let buffer_size = (self.config.max_splat_count * std::mem::size_of::<f32>()) as u64;
+        
+        let copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Copy Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-        /*let texel_size = texture.format().block_size(None).unwrap();
+        // Encoder la commande pour copier les données du radii_buffer vers le copy_buffer
+        //encoder.copy_buffer_to_buffer(&self.radii_buffer, 0, &copy_buffer, 0, buffer_size);
+
+        let texel_size = texture.format().block_size(None).unwrap();
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: (texel_size * texture.width() * texture.height()).into(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            label: None,
+            mapped_at_creation: false,
+        });
+
+
         encoder.copy_texture_to_buffer(
             // source
             wgpu::ImageCopyTexture {
@@ -558,33 +577,24 @@ impl Renderer {
                 buffer: &output_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(texel_size * texture.width()),
+                    bytes_per_row: Some(4 * texture.width()),
                     rows_per_image: Some(texture.height()),
                 },
             },
             // copy_size
             texture.size(),
-        );*/
+        );
 
 
-            // VERIF DE RADII:
-        let buffer_size = (self.config.max_splat_count * std::mem::size_of::<f32>()) as u64;
-        
-        let copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Copy Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
-        // Encoder la commande pour copier les données du radii_buffer vers le copy_buffer
-        //encoder.copy_buffer_to_buffer(&self.radii_buffer, 0, &copy_buffer, 0, buffer_size);
         queue.submit(Some(encoder.finish()));
         // Attendre que la copie soit terminée
-        device.poll(wgpu::Maintain::Wait);
+        //device.poll(wgpu::Maintain::Wait);
+
         
+        output_buffer
         
-        let buffer_slice = copy_buffer.slice(..);
+        /*let buffer_slice = copy_buffer.slice(..);
         let (sender, receiver) = futures::channel::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
         device.poll(wgpu::Maintain::Wait); // S'assurer que la demande de mappage est traitée
@@ -622,6 +632,7 @@ impl Renderer {
             println!("La somme est : {}", splat_count);
             println!("La valeur maximale de radii qui n'est pas égale à 100.0 est : {}", max_radius_not_100);
 
-        }
+        }*/
+        
     }
 }
