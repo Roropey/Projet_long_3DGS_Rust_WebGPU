@@ -12,22 +12,6 @@ async fn run() {
     let file = File::open(env::args().nth(1).unwrap()).unwrap();
     let instance = wgpu::Instance::default();
 
-    let event_loop = winit::event_loop::EventLoop::new();
-    let mut builder = winit::window::WindowBuilder::new();
-    builder = builder.with_title("title");
-    let window = builder.build(&event_loop).unwrap();
-
-    let (size, surface) = unsafe {
-        // taille de ma fenetre
-        let size = window.inner_size();
-        // surface webgpu associée à la fenetre 
-        // unsafe car la ceration d'une fenetre webgpu n'est opas sans risque 
-        // region de dessin en gros pour Webgpu 
-        let surface = instance.create_surface(&window).expect("WebGPU is not supported or not enabled");
-        (size, surface)
-    };
-    println!("{}",size.width);
-    println!("{}",size.height);
 
     let adapter = instance
     .request_adapter(&wgpu::RequestAdapterOptions {
@@ -67,13 +51,13 @@ async fn run() {
         .expect("Unable to find a suitable GPU adapter!");
 
 
-    let texture = init_output_texture(&device, 832 ,size.height);  //size.width
+    let texture = init_output_texture(&device, 1024 ,1024);  //size.width
     let surface_configuration = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: wgpu::TextureFormat::Rgba8Unorm, 
         view_formats: vec![wgpu::TextureFormat::Rgba8Unorm],
-        width: 832,//size.width,
-        height: size.height,
+        width: 1024,//size.width,
+        height: 1024,
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque, 
     };
@@ -102,11 +86,10 @@ async fn run() {
     scene.load_chunk(&queue, &mut file, file_header_size, 0..splat_count);
 
     let viewport_size = wgpu::Extent3d {
-        width: 832,
-        height: 600,
+        width: 1024,
+        height: 1024,
         depth_or_array_layers: 1,};
-    println!("{}",viewport_size.height);
-    println!("{}",viewport_size.width);
+
     let camera_rotation = Rotor::one(); //Rotor::new(1.0, 1.0,-1.0,1.0);
     let camera_translation =Translator::one(); // Translator::new(1.0,-3.0026817933840073, 1.4007726437615275, -2.2284005560263305); //Translator::one();
 
