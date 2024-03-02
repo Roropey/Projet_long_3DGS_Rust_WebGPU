@@ -9,7 +9,7 @@ namespace cg = cooperative_groups;
 
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian
-__global__ void project_gaussians_forward_kernel(
+extern "C" __global__ void project_gaussians_forward_kernel(
     const int num_points,
     const float3* __restrict__ means3d,
     const float3* __restrict__ scales,
@@ -17,10 +17,12 @@ __global__ void project_gaussians_forward_kernel(
     const float4* __restrict__ quats,
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
-    const float4 intrins,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
+    const float fx,
+    const float fy,
+    const float cx,
+    const float cy,
+    const unsigned img_width,
+    const unsigned img_height,
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -28,7 +30,7 @@ __global__ void project_gaussians_forward_kernel(
     float* __restrict__ covs3d,
     float2* __restrict__ xys,
     float* __restrict__ depths,
-    int* __restrict__ radii,
+    float* __restrict__ radii,
     float3* __restrict__ conics,
     float* __restrict__ compensation,
     int32_t* __restrict__ num_tiles_hit
@@ -37,12 +39,14 @@ __global__ void project_gaussians_forward_kernel(
     if (idx >= num_points) {
         return;
     }
-    radii[idx] = 0;
+    radii[idx] = 0.0;
     num_tiles_hit[idx] = 0;
 
 
     dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
-    dim3 img_size = {img_size_x,img_size_y,img_size_z};
+    dim3 img_size;
+    img_size.x = img_width;
+    img_size.y = img_height;
 
 
     float3 p_world = means3d[idx];
@@ -65,12 +69,8 @@ __global__ void project_gaussians_forward_kernel(
     scale_rot_to_cov3d(scale, glob_scale, quat, cur_cov3d);
 
     // project to 2d with ewa approximation
-    float fx = intrins.x;
-    float fy = intrins.y;
-    float cx = intrins.z;
-    float cy = intrins.w;
-    float tan_fovx = 0.5 * img_size.x / fx;
-    float tan_fovy = 0.5 * img_size.y / fy;
+    float tan_fovx = 0.5 * img_width / fx;
+    float tan_fovy = 0.5 * img_height / fy;
     float3 cov2d;
     float comp;
     project_cov3d_ewa(
@@ -99,7 +99,7 @@ __global__ void project_gaussians_forward_kernel(
 
     num_tiles_hit[idx] = tile_area;
     depths[idx] = p_view.z;
-    radii[idx] = (int)radius;
+    radii[idx] = radius;
     xys[idx] = center;
     compensation[idx] = comp;
     // printf(
@@ -115,7 +115,7 @@ __global__ void map_gaussian_to_intersects(
     const int num_points,
     const float2* __restrict__ xys,
     const float* __restrict__ depths,
-    const int* __restrict__ radii,
+    const float* __restrict__ radii,
     const int32_t* __restrict__ cum_tiles_hit,
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
@@ -126,7 +126,7 @@ __global__ void map_gaussian_to_intersects(
     unsigned idx = cg::this_grid().thread_rank();
     if (idx >= num_points)
         return;
-    if (radii[idx] <= 0)
+    if (radii[idx] <= 0.0)
         return;
     // Création de tile_bounds à partir des valeurs
     dim3 tile_bounds = {tile_bounds_x,tile_bounds_y,tile_bounds_z};
