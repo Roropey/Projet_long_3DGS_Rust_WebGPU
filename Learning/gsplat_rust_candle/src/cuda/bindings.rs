@@ -219,6 +219,22 @@ impl ProjectGaussians {
         
 }
 
+fn get_cuda_slice(tensor:&Tensor) -> Result<(CudaSlice,Layout)> {
+    let (storage,layout) = tensor.storage_and_layout();
+    let cuda_storage = to_cuda_storage(&storage,&layout);
+    let cuda_slice = cuda_stroage.as_cuda_slice::<f32>()?;
+    let cuda_slice = match cuda_slice.contiguous_offsets() {
+                None => candle_core::bail!("means 3d input has to be contiguous"),
+                Some((o1, o2)) => cuda_slice.slice(o1..o2),
+            };
+    Ok(cuda_slice,layout)
+}
+
+fn to_tensor(slice:CudaSlice,dev:Device,shape;Shape) -> Result<Tensor>{
+    let storage = candle_core::CudaStorage::wrap_cuda_slice(slice,dev);
+    let tensor = from_storage(candle_core::Storage::Cuda(storage), shape, BackpropOp::none(),false)
+}
+
 impl CustomOp1 for ProjectGaussians {
     fn name(&self) -> &'static str {
         "project-3d-gaussians"
@@ -229,7 +245,92 @@ impl CustomOp1 for ProjectGaussians {
         Ok((storage.try_clone(layout)?, layout.shape().clone()))
     }
 
-    //après avoir testé customop.rs et fwd : IMPLEMENTER BACKWARD
+    fn bwd (&self, _arg: &Tensor, _res: &Tensor, _grad_res: &Tensor) -> Result<Option<Tensor>> {
+        let num_points = _arg.shape().dims();
+        let num_points = num_points[0];
+        
+        let means3d = _arg.narrow(1,0,3);
+        let scales = _arg.narrow(1,3,3);
+        let quats = _arg.narrow(1,6,4);
+        let slice_means3d = get_cuda_slice(means3d);
+        let slice_scales = get_cuda_slice(scales);
+        let slice_quats = get_cuda_slice(quats);
+        
+        let dst_v_means3d = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
+        let dst_v_scales = unsafe { dev.alloc::<f32>(num_points*3) }.w()?;
+        let dst_v_quats = unsafe { dev.alloc::<f32>(num_points*4) }.w()?;
+        
+        let cov3d = _res.narrow(1,0,6);
+        let radii = _res.narrow(1,9,1);
+        let conics = _res.narrow(1,10,3);
+        let slice_cov3d = get_cuda_slice(cov3d);
+        let slice_radii = get_cuda_slice(radii);
+        let slice_conics = get_cuda_slice(conics);
+        
+        let v_xy = _grad_res.narrow(1,6,2);
+        let v_depth = _grad_rest.narrow(1,8,1);
+        let v_conics = _grad_res.narrow(1,10,3);
+        let slice_v_xy = get_cuda_slice(v_xy);
+        let slice_v_depth = get_cuda_slice(v_depth);
+        let slice_v_conics = get_cuda_slice(v_conics);
+
+        let params: &mut [_] = & mut [
+            num_points.as_kernel_param(),
+            (&slice_means3d).as_kernel_param(),
+            (&slice_scales).as_kernel_param(),
+            self.glob_scale.as_kernel_param(),
+            (&slice_quats).as_kernel_param(),
+            //viewmat,
+            //projmat,
+            self.fx.as_kernel_param(),
+            self.fy.as_kernel_param(),
+            self.cx.as_kernel_param(),
+            self.cy.as_kernel_param(),
+            self.img_height.as_kernel_param(),
+            self.img_width.as_kernel_param(),
+            //IMG SIZE Z,
+            (&slice_cov3d).as_kernel_param(),
+            (&slice_radii).as_kernel_param(), //il faudra modifier le kernel cuda pour qu'il prenne un tensor float et pas int
+            (&slice_conics).as_kernel_param(),
+            (&slice_v_xy).as_kernel_param(),
+            (&slice_v_depth).as_kernel_param(),
+            (&slice_v_conics).as_kernel_param(),
+            //V COV 2D,
+            //V COV 3D,
+            (&dst_v_means3d).as_kernel_param(),
+            (&dst_v_scales).as_kernel_param(),
+            (&dst_v_quats).as_kernel_param(),
+        ]
+
+        let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD)?;
+        
+        let n_threads = 256; //TODO : voir si on peut le mettre en argument
+        let n_blocks = (num_points + n_threads - 1) / n_threads;
+        let n_threads = n_threads as u32;
+        let n_blocks = n_blocks as u32;
+        let cfg = LaunchConfig {
+            grid_dim: (n_blocks, 1, 1),
+            block_dim: (n_threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe { func.launch(cfg, params) }.w()?;
+
+        let v_means3d = to_tensor(dst_v_means3d,dev,Shape::from_dims(&[num_points,3]));
+        let v_scales = to_tensor(dst_v_scales,dev,Shape::from_dims(&[num_points,3]));
+        let v_quats = to_tensor(dst_v_quats,dev,Shape::from_dims(&[num_points,4]));
+
+        let gradtot = Tensor::cat(&[v_means3d,v_scales,v_quats]);
+        let gradtot = gradtot.contiguous()
+
+        //ptetre ici faudra modifier l'op de backprop pour que ça fasse pas n'imp
+        //comme dans customop
+        //mais ptetre pas
+        //let shape = gradtot.shape();
+        //let (storage, layout) = gradtot.storage_and_layout();
+        //let storage = storage.try_clone(layout)?;
+        
+    }
 }
 
 #[cfg(test)]
