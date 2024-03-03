@@ -328,7 +328,7 @@ __global__ void rasterize_backward_kernel(
     }
 }
 
-__global__ void project_gaussians_backward_kernel(
+extern "C" __global__ void project_gaussians_backward_kernel(
     const int num_points,
     const float3* __restrict__ means3d,
     const float3* __restrict__ scales,
@@ -337,11 +337,10 @@ __global__ void project_gaussians_backward_kernel(
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
     const float4 intrins,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
+    const unsigned img_width,
+    const unsigned img_height,
     const float* __restrict__ cov3d,
-    const int* __restrict__ radii,
+    const float* __restrict__ radii,
     const float3* __restrict__ conics,
     const float2* __restrict__ v_xy,
     const float* __restrict__ v_depth,
@@ -353,10 +352,12 @@ __global__ void project_gaussians_backward_kernel(
     float4* __restrict__ v_quat
 ) {
     unsigned idx = cg::this_grid().thread_rank(); // idx of thread within grid
-    if (idx >= num_points || radii[idx] <= 0) {
+    if (idx >= num_points || radii[idx] <= 0.0) {
         return;
     }
-    dim3 img_size = {img_size_x,img_size_y,img_size_z};
+    dim3 img_size;
+    img_size.x = img_width;
+    img_size.y = img_height;
     float3 p_world = means3d[idx];
     float fx = intrins.x;
     float fy = intrins.y;

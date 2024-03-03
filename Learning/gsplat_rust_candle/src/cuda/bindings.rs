@@ -192,10 +192,10 @@ impl ProjectGaussians {
         &self,
         means3d_storage: &candle_core::CudaStorage,
         means3d_layout: &Layout,
-        scale_storage: &candle_core::CudaStorage,
-        scale_layout: &Layout,
-        quats_storage: &candle_core::CudaStorage,
-        quats_layout: &Layout,
+        _scale_storage: &candle_core::CudaStorage,
+        _scale_layout: &Layout,
+        _quats_storage: &candle_core::CudaStorage,
+        _quats_layout: &Layout,
     ) -> Result<(
         candle_core::CudaStorage,
         Shape,
@@ -263,13 +263,13 @@ fn get_dev(tensor: &Tensor) -> Result<CudaDevice> {
 fn get_cuda_slice<'a>(
     cuda_storage: &'a CudaStorage,
     layout: Layout,
-) -> Result<(CudaView<'a, f32>)> {
+) -> Result<CudaView<'a, f32>> {
     let cuda_slice = cuda_storage.as_cuda_slice::<f32>()?;
     let cuda_slice = match layout.contiguous_offsets() {
         None => candle_core::bail!("means 3d input has to be contiguous"),
         Some((o1, o2)) => cuda_slice.slice(o1..o2),
     };
-    Ok((cuda_slice))
+    Ok(cuda_slice)
 }
 
 fn to_tensor(slice: CudaSlice<f32>, dev: CudaDevice, shape: Shape) -> Result<Tensor> {
@@ -304,15 +304,15 @@ impl CustomOp1 for ProjectGaussians {
 
         let (storage, layout) = means3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_means3d) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_means3d = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = scales.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_scales) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_scales = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = quats.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_quats) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_quats = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let dst_v_means3d = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_v_scales = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
@@ -326,15 +326,15 @@ impl CustomOp1 for ProjectGaussians {
 
         let (storage, layout) = cov3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_cov3d) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_cov3d = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = radii.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_radii) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_radii = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = conics.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_conics) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_conics = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let v_xy = _grad_res.narrow(1, 6, 2)?;
         let v_depth = _grad_res.narrow(1, 8, 1)?;
@@ -342,15 +342,15 @@ impl CustomOp1 for ProjectGaussians {
 
         let (storage, layout) = v_xy.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_v_xy) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_xy = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = v_depth.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_v_depth) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_depth = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = v_conics.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let (slice_v_conics) = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_conics = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let params: &mut [_] = &mut [
             num_points.as_kernel_param(),
@@ -425,7 +425,7 @@ mod test {
     #[test]
     fn test_func_binding() -> () {
         let pdev = CudaDevice::new(0);
-        let mut dev;
+        let dev;
         match pdev {
             Ok(d) => dev = d,
             Err(e) => panic!(
@@ -506,5 +506,90 @@ mod test {
         };
         unsafe { func.launch(cfg, params) };
         Ok(())
+    }
+
+    #[test]
+    fn dummy_bacward_launch(){
+        let dev = CudaDevice::new(0).unwrap();
+        let num_points = 1;
+        let dst_v_cov3d = unsafe { dev.alloc::<f32>(6) }.w().unwrap();
+        let dst_v_xys_d = unsafe { dev.alloc::<f32>(2) }.w().unwrap();
+        let dst_v_depth = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_v_radii = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_v_conics = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let dst_v_compensation = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_v_num_tiles_hit = unsafe { dev.alloc::<u32>(1) }.w().unwrap();
+
+        let dst_cov3d = unsafe { dev.alloc::<f32>(6) }.w().unwrap();
+        let dst_xys_d = unsafe { dev.alloc::<f32>(2) }.w().unwrap();
+        let dst_depth = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_radii = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_conics = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let dst_compensation = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(1) }.w().unwrap();
+
+        let slice_m3d = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let slice_sc = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let slice_q = unsafe { dev.alloc::<f32>(4) }.w().unwrap();
+        let slice_view = unsafe { dev.alloc::<f32>(16) }.w().unwrap();
+        let slice_proj = unsafe { dev.alloc::<f32>(16) }.w().unwrap();
+
+        let glob_scale: f32 = 1.0;
+        let fx: f32 = 1.0;
+        let fy: f32 = 1.0;
+        let cx: f32 = 1.0;
+        let cy: f32 = 1.0;
+        let img_height: u32 = 1;
+        let img_width: u32 = 1;
+        let tile_bounds0: u32 = 1;
+        let tile_bounds1: u32 = 1;
+        let tile_bounds2: u32 = 1;
+        let clip_thresh: f32 = 1.0;
+
+
+        let params: &mut [_] = &mut [
+            num_points.as_kernel_param(),
+            (&slice_m3d).as_kernel_param(),
+            (&slice_sc).as_kernel_param(),
+            glob_scale.as_kernel_param(),
+            (&slice_q).as_kernel_param(),
+            (&slice_view).as_kernel_param(),
+            (&slice_proj).as_kernel_param(),
+            fx.as_kernel_param(),
+            fy.as_kernel_param(),
+            cx.as_kernel_param(),
+            cy.as_kernel_param(),
+            img_height.as_kernel_param(),
+            img_width.as_kernel_param(),
+            tile_bounds0.as_kernel_param(),
+            tile_bounds1.as_kernel_param(),
+            tile_bounds2.as_kernel_param(),
+            clip_thresh.as_kernel_param(),
+            (&dst_cov3d).as_kernel_param(),
+            (&dst_xys_d).as_kernel_param(),
+            (&dst_depth).as_kernel_param(),
+            (&dst_radii).as_kernel_param(),
+            (&dst_conics).as_kernel_param(),
+            (&dst_compensation).as_kernel_param(),
+            (&dst_num_tiles_hit).as_kernel_param(),
+            (&dst_v_cov3d).as_kernel_param(),
+            (&dst_v_xys_d).as_kernel_param(),
+            (&dst_v_depth).as_kernel_param(),
+            (&dst_v_radii).as_kernel_param(),
+            (&dst_v_conics).as_kernel_param(),
+            (&dst_v_compensation).as_kernel_param(),
+            (&dst_v_num_tiles_hit).as_kernel_param(),
+        ];
+
+        let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD).unwrap();
+        let cfg = LaunchConfig {
+            grid_dim: (0, 0, 0),
+            block_dim: (0, 0, 0),
+            shared_mem_bytes: 0,
+        };
+        unsafe { func.launch(cfg, params) };
+
+
+
     }
 }

@@ -362,7 +362,7 @@ mod tests {
 
     fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let device = Device::new_cuda(0)?;
-        let num_points = 2;
+        let _num_points = 2;
         let means3d_slice: &[f32] = &[0.0, 0.0, 10.0, 0.0, 0.0, 10.0];
         let means3d = candle_core::Tensor::from_slice(
             means3d_slice,
@@ -399,7 +399,7 @@ mod tests {
             &device,
         )?;
         let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0, &device);
-        let fullmat = projmat.matmul(&viewmat);
+        let _fullmat = projmat.matmul(&viewmat);
         let BLOCK_X = 16;
         let BLOCK_Y = 16;
         let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
@@ -430,37 +430,37 @@ mod tests {
                 [0.0049, -0.0000, 0.0049]], device='cuda:0')
         compensation:  tensor([0.9985, 0.9985], device='cuda:0')
         num_tiles_hit:  tensor([36, 36], device='cuda:0', dtype=torch.int32) */
-        let python_cov3d = candle_core::Tensor::from_slice(
+        let _python_cov3d = candle_core::Tensor::from_slice(
             &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
             &candle_core::Shape::from_dims(&[2, 6]),
             &device,
         )?;
-        let python_xys = candle_core::Tensor::from_slice(
+        let _python_xys = candle_core::Tensor::from_slice(
             &[255.5000, 255.5000, 255.5000, 255.5000],
             &candle_core::Shape::from_dims(&[2, 2]),
             &device,
         )?;
-        let python_depths = candle_core::Tensor::from_slice(
+        let _python_depths = candle_core::Tensor::from_slice(
             &[18.0, 18.0],
             &candle_core::Shape::from_dims(&[2]),
             &device,
         )?;
-        let python_radii = candle_core::Tensor::from_slice(
+        let _python_radii = candle_core::Tensor::from_slice(
             &[43 as f32, 43 as f32],
             &candle_core::Shape::from_dims(&[2]),
             &device,
         )?;
-        let python_conics = candle_core::Tensor::from_slice(
+        let _python_conics = candle_core::Tensor::from_slice(
             &[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049],
             &candle_core::Shape::from_dims(&[2, 3]),
             &device,
         )?;
-        let python_compensation = candle_core::Tensor::from_slice(
+        let _python_compensation = candle_core::Tensor::from_slice(
             &[0.9985, 0.9985],
             &candle_core::Shape::from_dims(&[2]),
             &device,
         )?;
-        let python_num_tiles_hit = candle_core::Tensor::from_slice(
+        let _python_num_tiles_hit = candle_core::Tensor::from_slice(
             &[36 as u32, 36 as u32],
             &candle_core::Shape::from_dims(&[2]),
             &device,
