@@ -54,7 +54,7 @@ fn project_gaussian(
         - **cov3d** (Tensor): 3D covariances.
     */
     let clip_thresh = clip_thresh.unwrap_or(0.01);
-    customop::ProjectGaussians(&means3d, &scales, glob_scale, &quats, &viewmat, &projmat, fx, fy, cx, cy, img_height, img_width, tile_bounds, Some(clip_thresh))
+    customop::ProjectGaussians(&means3d, &scales, glob_scale, &quats, &viewmat, &projmat, fx, fy, cx, cy, img_height, img_width, tile_bounds, Some(clip_thresh))?
     
 
 }

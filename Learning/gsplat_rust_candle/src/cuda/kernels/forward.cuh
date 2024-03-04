@@ -30,7 +30,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
 );
 
 // compute output color image from binned and sorted gaussians
-__global__ void rasterize_forward(
+extern "C" __global__ void rasterize_forward(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -44,13 +44,13 @@ __global__ void rasterize_forward(
     const float3* __restrict__ colors,
     const float* __restrict__ opacities,
     float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
+    float* __restrict__ final_index,
     float3* __restrict__ out_img,
     const float3& __restrict__ background
 );
 
 // compute output color image from binned and sorted gaussians
-__global__ void nd_rasterize_forward(
+extern "C" __global__ void nd_rasterize_forward(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -65,7 +65,7 @@ __global__ void nd_rasterize_forward(
     const float* __restrict__ colors,
     const float* __restrict__ opacities,
     float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
+    float* __restrict__ final_index,
     float* __restrict__ out_img,
     const float* __restrict__ background
 );
@@ -103,43 +103,4 @@ __global__ void map_gaussian_to_intersects(
 
 __global__ void get_tile_bin_edges(
     const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, int2* __restrict__ tile_bins
-);
-
-__global__ void rasterize_forward(
-    const unsigned tile_bounds_x,
-    const unsigned tile_bounds_y,
-    const unsigned tile_bounds_z,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
-    const int32_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
-    const float2* __restrict__ xys,
-    const float3* __restrict__ conics,
-    const float3* __restrict__ colors,
-    const float* __restrict__ opacities,
-    float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
-    float3* __restrict__ out_img,
-    const float3& __restrict__ background
-);
-
-__global__ void nd_rasterize_forward(
-    const unsigned tile_bounds_x,
-    const unsigned tile_bounds_y,
-    const unsigned tile_bounds_z,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
-    const unsigned channels,
-    const int32_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
-    const float2* __restrict__ xys,
-    const float3* __restrict__ conics,
-    const float* __restrict__ colors,
-    const float* __restrict__ opacities,
-    float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
-    float* __restrict__ out_img,
-    const float* __restrict__ background
 );

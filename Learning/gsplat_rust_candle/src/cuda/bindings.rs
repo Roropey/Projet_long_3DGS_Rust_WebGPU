@@ -2,6 +2,7 @@ use super::cuda_kernels::BACKWARD;
 use super::cuda_kernels::FORWARD;
 use candle_core::backend::BackendDevice;
 use candle_core::backend::BackendStorage;
+use candle_core::cuda_backend::cudarc::driver::CudaFunction;
 use candle_core::cuda_backend::cudarc::driver::{
     CudaSlice, CudaView, DeviceRepr, LaunchAsync, LaunchConfig,
 };
@@ -10,7 +11,7 @@ use candle_core::op::BackpropOp;
 use candle_core::tensor::from_storage;
 use candle_core::CpuStorage;
 use candle_core::CudaStorage;
-use candle_core::CustomOp2;
+use candle_core::{CustomOp2, CustomOp3};
 use candle_core::Device;
 use candle_core::Tensor;
 use candle_core::{Layout, Result, Shape};
@@ -458,6 +459,303 @@ impl CustomOp2 for ProjectGaussians {
     }
 }
 
+
+pub struct RasterizeGaussians{
+    pub not_nd: bool,
+    pub tile_bounds: (u32, u32, u32),
+    pub img_size: (u32, u32, u32),
+    pub channels: u32,
+    pub num_intersects: u32,
+    pub block_width: u32,
+    pub background: Tensor,
+}
+
+impl RasterizeGaussians {
+    pub fn fwd(
+        &self,
+        gaussian_ids_sorted_storage: candle_core::CudaStorage,
+        gaussian_ids_sorted_layout: &Layout,
+        tile_bins_storage: candle_core::CudaStorage,
+        tile_bins_layout: &Layout,
+        xys_storage: candle_core::CudaStorage,
+        xys_layout: &Layout,
+        conics_storage: candle_core::CudaStorage,
+        conics_layout: &Layout,
+        colors_storage: candle_core::CudaStorage,
+        colors_layout: &Layout,
+        opacity_storage: candle_core::CudaStorage,
+        opacity_layout: &Layout,
+    ) -> Result<(
+        candle_core::CudaStorage,
+        Shape,
+        candle_core::CudaStorage,
+        Shape,
+        candle_core::CudaStorage,
+        Shape)>{
+
+        let dev = gaussian_ids_sorted_storage.device().clone();
+        let gaussian_ids_sorted_slice = get_cuda_slice(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
+        let tile_bins_slice = get_cuda_slice(&tile_bins_storage, tile_bins_layout.clone())?;
+        let xys_slice = get_cuda_slice(&xys_storage, xys_layout.clone())?;
+        let conics_slice = get_cuda_slice(&conics_storage, conics_layout.clone())?;
+        let colors_slice = get_cuda_slice(&colors_storage, colors_layout.clone())?;
+        let opacity_slice = get_cuda_slice(&opacity_storage, opacity_layout.clone())?;
+        
+        let (background_storage, background_layout) = self.background.storage_and_layout();
+        let background_storage = super::customop::to_cuda_storage(&background_storage, &background_layout)?;
+        let background_slice = get_cuda_slice(&background_storage, background_layout.clone())?;
+        
+        let func = if self.not_nd {
+            dev.get_or_load_func("rasterize_forward", FORWARD)?
+        } else {
+            dev.get_or_load_func("nd_rasterize_forward", FORWARD)?
+        };
+        
+        let dst_out_img = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1 * self.channels) as usize) }.w()?;
+        let dst_final_Ts = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1) as usize) }.w()?;
+        let dst_final_index = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1) as usize) }.w()?;
+        let param_norm = &mut [
+        self.tile_bounds.0.as_kernel_param(),
+        self.tile_bounds.1.as_kernel_param(),
+        self.tile_bounds.2.as_kernel_param(),
+        self.img_size.0.as_kernel_param(),
+        self.img_size.1.as_kernel_param(),
+        self.img_size.2.as_kernel_param(),
+        (&gaussian_ids_sorted_slice).as_kernel_param(),
+        (&tile_bins_slice).as_kernel_param(),
+        (&xys_slice).as_kernel_param(),
+        (&conics_slice).as_kernel_param(),
+        (&colors_slice).as_kernel_param(),
+        (&opacity_slice).as_kernel_param(),
+        (&dst_final_Ts).as_kernel_param(),
+        (&dst_final_index).as_kernel_param(),
+        (&dst_out_img).as_kernel_param(),
+        (&background_slice).as_kernel_param()
+        ];
+        let param_nd = &mut [
+        self.tile_bounds.0.as_kernel_param(),
+        self.tile_bounds.1.as_kernel_param(),
+        self.tile_bounds.2.as_kernel_param(),
+        self.img_size.0.as_kernel_param(),
+        self.img_size.1.as_kernel_param(),
+        self.img_size.2.as_kernel_param(),
+        self.channels.as_kernel_param(),
+        (&gaussian_ids_sorted_slice).as_kernel_param(),
+        (&tile_bins_slice).as_kernel_param(),
+        (&xys_slice).as_kernel_param(),
+        (&conics_slice).as_kernel_param(),
+        (&colors_slice).as_kernel_param(),
+        (&opacity_slice).as_kernel_param(),
+        (&dst_final_Ts).as_kernel_param(),
+        (&dst_final_index).as_kernel_param(),
+        (&dst_out_img).as_kernel_param(),
+        (&background_slice).as_kernel_param()
+        ];
+        
+        let params: &mut [_] = if self.not_nd { param_norm } else {param_nd};
+        // let n_threads = 256; //TODO : voir si on peut le mettre en argument
+        // let n_blocks = (num_points + n_threads - 1) / n_threads;
+        // let n_threads = n_threads as u32;
+        // let n_blocks = n_blocks as u32;
+        let cfg = LaunchConfig {
+            grid_dim: self.tile_bounds,
+            block_dim: (self.block_width, self.block_width, 1),
+            shared_mem_bytes: 0,
+        };
+
+        println!("Launching kernel");
+        unsafe { func.launch(cfg, params) }.w()?;
+
+        println!("Wrapping output tensors");
+        let dst_final_Ts = candle_core::CudaStorage::wrap_cuda_slice(dst_final_Ts, dev.clone());
+        let dst_final_index = candle_core::CudaStorage::wrap_cuda_slice(dst_final_index, dev.clone());
+        let dst_out_img = candle_core::CudaStorage::wrap_cuda_slice(dst_out_img, dev);
+        Ok((
+            dst_final_Ts,
+            Shape::from_dims(&[self.img_size.1 as usize, self.img_size.0 as usize]),
+            dst_final_index,
+            Shape::from_dims(&[self.img_size.1 as usize, self.img_size.0 as usize]),
+            dst_out_img,
+            Shape::from_dims(&[self.img_size.1 as usize, self.img_size.0 as usize, self.channels as usize])       
+        ))
+
+
+    }
+}
+impl CustomOp3 for RasterizeGaussians {
+    fn name(&self) -> &'static str {
+        "rasterize-gaussians"
+    }
+    fn cpu_fwd(
+            &self,
+            s1: &CpuStorage,
+            l1: &Layout,
+            s2: &CpuStorage,
+            l2: &Layout,
+            s3: &CpuStorage,
+            l3: &Layout,
+        ) -> Result<(CpuStorage, Shape)> {
+            Ok((s1.try_clone(l1)?, l1.shape().clone()))
+        
+    }
+    fn bwd(
+            &self,
+            tensor_gauss: &Tensor,
+            gaussians_ids_sorted: &Tensor,
+            tile_bins: &Tensor,
+            _res: &Tensor,
+            _grad_res: &Tensor,
+        ) -> Result<(Option<Tensor>, Option<Tensor>, Option<Tensor>)> {
+
+        let xys = tensor_gauss.narrow(1, 0, 2)?;
+        let xys = xys.contiguous()?;
+        let conics = tensor_gauss.narrow(1, 2, 3)?;
+        let conics = conics.contiguous()?;
+        let colors = tensor_gauss.narrow(1, 5, 3)?;
+        let colors = colors.contiguous()?;
+        let opacity = tensor_gauss.narrow(1, 8, 1)?;
+        let opacity = opacity.contiguous()?;
+        
+        let (xys_st, xys_l) = xys.storage_and_layout();
+        let xys_st = super::customop::to_cuda_storage(&xys_st, &xys_l)?;
+        let slice_xys = get_cuda_slice(&xys_st, xys_l.clone())?;
+        let (conics_st, conics_l) = conics.storage_and_layout();
+        let conics_st = super::customop::to_cuda_storage(&conics_st, &conics_l)?;
+        let slice_conics = get_cuda_slice(&conics_st, conics_l.clone())?;
+        let (colors_st, colors_l) = colors.storage_and_layout();
+        let colors_st = super::customop::to_cuda_storage(&colors_st, &colors_l)?;
+        let slice_colors = get_cuda_slice(&colors_st, colors_l.clone())?;
+        let (opacity_st, opacity_l) = opacity.storage_and_layout();
+        let opacity_st = super::customop::to_cuda_storage(&opacity_st, &opacity_l)?;
+        let slice_opacity = get_cuda_slice(&opacity_st, opacity_l.clone())?;
+        let (gaussians_ids_sorted_st, gaussians_ids_sorted_l) = gaussians_ids_sorted.storage_and_layout();
+        let gaussians_ids_sorted_st = super::customop::to_cuda_storage(&gaussians_ids_sorted_st, &gaussians_ids_sorted_l)?;
+        let slice_gaussians_ids_sorted = get_cuda_slice(&gaussians_ids_sorted_st, gaussians_ids_sorted_l.clone())?;
+        let (tile_bins_st, tile_bins_l) = tile_bins.storage_and_layout();
+        let tile_bins_st = super::customop::to_cuda_storage(&tile_bins_st, &tile_bins_l)?;
+        let slice_tile_bins = get_cuda_slice(&tile_bins_st, tile_bins_l.clone())?;
+        let (background_st, background_l) = self.background.storage_and_layout();
+        let background_st = super::customop::to_cuda_storage(&background_st, &background_l)?;
+        let slice_background = get_cuda_slice(&background_st, background_l.clone())?;
+        
+        let dev = xys_st.device();
+
+        
+        let v_out_img = _grad_res.narrow(1, 0, 2)?;
+        let v_out_img = v_out_img.contiguous()?;
+        let final_Ts = _res.narrow(1, 2, 3)?;
+        let final_Ts = final_Ts.contiguous()?;
+        let final_index = _res.narrow(1, 5, 3)?;
+        let final_index = final_index.contiguous()?;
+        let v_out_alpha = _grad_res.narrow(1, 8, 1)?;
+        let v_out_alpha = v_out_alpha.contiguous()?;
+
+        let (v_out_img_st, v_out_img_l) = v_out_img.storage_and_layout();
+        let v_out_img_st = super::customop::to_cuda_storage(&v_out_img_st, &v_out_img_l)?;
+        let slice_v_out_img = get_cuda_slice(&v_out_img_st, v_out_img_l.clone())?;
+        let (final_Ts_st, final_Ts_l) = final_Ts.storage_and_layout();
+        let final_Ts_st = super::customop::to_cuda_storage(&final_Ts_st, &final_Ts_l)?;
+        let slice_final_Ts = get_cuda_slice(&conics_st, conics_l.clone())?;
+        let (final_index_st, final_index_l) = final_index.storage_and_layout();
+        let final_index_st = super::customop::to_cuda_storage(&final_index_st, &final_index_l)?;
+        let slice_final_index = get_cuda_slice(&final_index_st, final_index_l.clone())?;
+        let (v_out_alpha_st, v_out_alpha_l) = v_out_alpha.storage_and_layout();
+        let v_out_alpha_st = super::customop::to_cuda_storage(&v_out_alpha_st, &v_out_alpha_l)?;
+        let slice_v_out_alpha = get_cuda_slice(&v_out_alpha_st, v_out_alpha_l.clone())?;
+        let num_points = xys.dim(0)?;
+        let dst_v_xy = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
+        let dst_v_conic = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
+        let dst_v_colors = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
+        let dst_v_opacity = unsafe { dev.alloc::<f32>(num_points * 1) }.w()?;
+        
+        let func = if self.not_nd {
+            dev.get_or_load_func("rasterize_backward_kernel", BACKWARD)?
+        } else {
+            dev.get_or_load_func("nd_rasterize_backward_kernel", BACKWARD)?
+        };
+        let param_norm = &mut [
+            self.tile_bounds.0.as_kernel_param(),
+            self.tile_bounds.1.as_kernel_param(),
+            self.tile_bounds.2.as_kernel_param(),
+            self.img_size.0.as_kernel_param(),
+            self.img_size.1.as_kernel_param(),
+            self.img_size.2.as_kernel_param(),
+            (&slice_gaussians_ids_sorted).as_kernel_param(),
+            (&slice_tile_bins).as_kernel_param(),
+            (&slice_xys).as_kernel_param(),
+            (&slice_conics).as_kernel_param(),
+            (&slice_colors).as_kernel_param(),
+            (&slice_opacity).as_kernel_param(),
+            (&slice_background).as_kernel_param(),
+            (&slice_final_Ts).as_kernel_param(),
+            (&slice_final_index).as_kernel_param(),
+            (&slice_v_out_img).as_kernel_param(),
+            (&dst_v_xy).as_kernel_param(),
+            (&dst_v_conic).as_kernel_param(),
+            (&dst_v_colors).as_kernel_param(),
+            (&dst_v_opacity).as_kernel_param()
+        ];
+        let param_nd = &mut [
+                self.tile_bounds.0.as_kernel_param(),
+                self.tile_bounds.1.as_kernel_param(),
+                self.tile_bounds.2.as_kernel_param(),
+                self.img_size.0.as_kernel_param(),
+                self.img_size.1.as_kernel_param(),
+                self.img_size.2.as_kernel_param(),
+                self.channels.as_kernel_param(),
+                (&slice_gaussians_ids_sorted).as_kernel_param(),                
+                (&slice_tile_bins).as_kernel_param(),
+                (&slice_xys).as_kernel_param(),
+                (&slice_conics).as_kernel_param(),
+                (&slice_colors).as_kernel_param(),
+                (&slice_opacity).as_kernel_param(),
+                (&slice_background).as_kernel_param(),
+                (&slice_final_Ts).as_kernel_param(),
+                (&slice_final_index).as_kernel_param(),
+                (&slice_v_out_img).as_kernel_param(),
+                (&dst_v_xy).as_kernel_param(),
+                (&dst_v_conic).as_kernel_param(),
+                (&dst_v_colors).as_kernel_param(),
+                (&dst_v_opacity).as_kernel_param()
+        ];
+        let params: &mut [_] = if self.not_nd { param_norm } else {param_nd};
+        let cfg = LaunchConfig {
+            grid_dim: self.tile_bounds,
+            block_dim: (self.block_width, self.block_width, 1),
+            shared_mem_bytes: 0,
+        };
+
+        println!("Launching kernel");
+        unsafe { func.launch(cfg, params) }.w()?;
+
+        let v_xy = to_tensor(
+            dst_v_xy,
+            dev.clone(),
+            Shape::from_dims(&[num_points, 2]),
+        )?;
+        let v_conic = to_tensor(
+            dst_v_conic,
+            dev.clone(),
+            Shape::from_dims(&[num_points, 3]),
+        )?;
+        let v_colors = to_tensor(
+            dst_v_colors,
+            dev.clone(),
+            Shape::from_dims(&[num_points, 3]),
+        )?;
+        let v_opacity = to_tensor(
+            dst_v_opacity,
+            dev.clone(),
+            Shape::from_dims(&[num_points, 1]),
+        )?;
+
+
+        let gradtot = Tensor::cat(&[v_xy, v_conic, v_colors,v_opacity], 1)?;
+        let gradtot = gradtot.contiguous()?;
+        Ok((Some(gradtot),None,None))
+
+    }
+} 
 #[cfg(test)]
 mod test {
     use super::*;
