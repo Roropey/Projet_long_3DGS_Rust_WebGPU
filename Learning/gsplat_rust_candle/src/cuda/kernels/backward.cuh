@@ -4,7 +4,7 @@
 // for f : R(n) -> R(m), J in R(m, n),
 // v is cotangent in R(m), e.g. dL/df in R(m),
 // compute vjp i.e. vT J -> R(n)
-__global__ void project_gaussians_backward_kernel(
+extern "C" __global__ void project_gaussians_backward_kernel(
     const int num_points,
     const float3* __restrict__ means3d,
     const float3* __restrict__ scales,
@@ -13,11 +13,10 @@ __global__ void project_gaussians_backward_kernel(
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
     const float4 intrins,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
+    const unsigned img_width,
+    const unsigned img_height,
     const float* __restrict__ cov3d,
-    const int* __restrict__ radii,
+    const float* __restrict__ radii,
     const float3* __restrict__ conics,
     const float2* __restrict__ v_xy,
     const float* __restrict__ v_depth,

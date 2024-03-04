@@ -1,10 +1,5 @@
 pub mod cuda {
-    pub mod customop;
     pub mod bindings;
     pub mod cuda_kernels;
+    pub mod customop;
 }
-mod trainer;
-mod project_gaussians;
-mod rasterize;
-mod sh;
-mod utils;

@@ -2,7 +2,7 @@
 #include <cstdint>
 
 // compute the 2d gaussian parameters from 3d gaussian parameters
-__global__ void project_gaussians_forward_kernel(
+extern "C" __global__ void project_gaussians_forward_kernel(
     const int num_points,
     const float3* __restrict__ means3d,
     const float3* __restrict__ scales,
@@ -10,10 +10,12 @@ __global__ void project_gaussians_forward_kernel(
     const float4* __restrict__ quats,
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
-    const float4 intrins,
-    const unsigned img_size_x,
-    const unsigned img_size_y,
-    const unsigned img_size_z,
+    const float fx,
+    const float fy,
+    const float cx,
+    const float cy,
+    const unsigned img_width,
+    const unsigned img_height,
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -21,7 +23,7 @@ __global__ void project_gaussians_forward_kernel(
     float* __restrict__ covs3d,
     float2* __restrict__ xys,
     float* __restrict__ depths,
-    int* __restrict__ radii,
+    float* __restrict__ radii,
     float3* __restrict__ conics,
     float* __restrict__ compensation,
     int32_t* __restrict__ num_tiles_hit
