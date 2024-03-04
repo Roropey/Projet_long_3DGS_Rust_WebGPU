@@ -381,7 +381,6 @@ mod tests {
      */
 
     #[test]
-    #[ignore]
     fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let device = Device::new_cuda(0)?;
         let _num_points = 2;

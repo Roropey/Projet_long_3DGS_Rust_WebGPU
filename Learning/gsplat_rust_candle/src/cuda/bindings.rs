@@ -548,30 +548,29 @@ mod test {
     }
 
     #[test]
-    fn dummy_bacward_launch(){
+    fn dummy_bacward_launch()->Result<()>{
         let dev = CudaDevice::new(0).unwrap();
-        let num_points = 1;
-        let dst_v_cov3d = unsafe { dev.alloc::<f32>(6) }.w().unwrap();
+        let num_points = 0;
+        
         let dst_v_xys_d = unsafe { dev.alloc::<f32>(2) }.w().unwrap();
         let dst_v_depth = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
-        let dst_v_radii = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
         let dst_v_conics = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
-        let dst_v_compensation = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
-        let dst_v_num_tiles_hit = unsafe { dev.alloc::<u32>(1) }.w().unwrap();
 
         let dst_cov3d = unsafe { dev.alloc::<f32>(6) }.w().unwrap();
-        let dst_xys_d = unsafe { dev.alloc::<f32>(2) }.w().unwrap();
-        let dst_depth = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
         let dst_radii = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
         let dst_conics = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
-        let dst_compensation = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
-        let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(1) }.w().unwrap();
 
         let slice_m3d = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
-        let slice_sc = unsafe { dev.alloc::<f32>(1) }.w().unwrap();
+        let slice_sc = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
         let slice_q = unsafe { dev.alloc::<f32>(4) }.w().unwrap();
         let slice_view = unsafe { dev.alloc::<f32>(16) }.w().unwrap();
         let slice_proj = unsafe { dev.alloc::<f32>(16) }.w().unwrap();
+
+        let dst_v_cov2d = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let dst_v_cov3d = unsafe { dev.alloc::<f32>(6) }.w().unwrap();
+        let dst_v_mean3d = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let dst_v_scales = unsafe { dev.alloc::<f32>(3) }.w().unwrap();
+        let dst_v_quats = unsafe { dev.alloc::<f32>(4) }.w().unwrap();
 
         let glob_scale: f32 = 1.0;
         let fx: f32 = 1.0;
@@ -580,10 +579,7 @@ mod test {
         let cy: f32 = 1.0;
         let img_height: u32 = 1;
         let img_width: u32 = 1;
-        let tile_bounds0: u32 = 1;
-        let tile_bounds1: u32 = 1;
-        let tile_bounds2: u32 = 1;
-        let clip_thresh: f32 = 1.0;
+        
 
 
         let params: &mut [_] = &mut [
@@ -600,24 +596,21 @@ mod test {
             cy.as_kernel_param(),
             img_height.as_kernel_param(),
             img_width.as_kernel_param(),
-            tile_bounds0.as_kernel_param(),
-            tile_bounds1.as_kernel_param(),
-            tile_bounds2.as_kernel_param(),
-            clip_thresh.as_kernel_param(),
+            
             (&dst_cov3d).as_kernel_param(),
-            (&dst_xys_d).as_kernel_param(),
-            (&dst_depth).as_kernel_param(),
             (&dst_radii).as_kernel_param(),
             (&dst_conics).as_kernel_param(),
-            (&dst_compensation).as_kernel_param(),
-            (&dst_num_tiles_hit).as_kernel_param(),
-            (&dst_v_cov3d).as_kernel_param(),
+
             (&dst_v_xys_d).as_kernel_param(),
             (&dst_v_depth).as_kernel_param(),
-            (&dst_v_radii).as_kernel_param(),
             (&dst_v_conics).as_kernel_param(),
-            (&dst_v_compensation).as_kernel_param(),
-            (&dst_v_num_tiles_hit).as_kernel_param(),
+            
+            (&dst_v_cov2d).as_kernel_param(),
+            (&dst_v_cov3d).as_kernel_param(),
+            (&dst_v_mean3d).as_kernel_param(),
+            (&dst_v_scales).as_kernel_param(),
+            (&dst_v_quats).as_kernel_param(),
+
         ];
 
         let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD).unwrap();
@@ -626,7 +619,9 @@ mod test {
             block_dim: (0, 0, 0),
             shared_mem_bytes: 0,
         };
-        unsafe { func.launch(cfg, params) };
+        unsafe { func.launch(cfg, params) }.w()?;
+        Ok(())
+    
     }
 
     /* #[test]
