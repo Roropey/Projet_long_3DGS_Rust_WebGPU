@@ -247,8 +247,7 @@ pub fn ProjectGaussians(
 
     let structc = Arc::new(Box::new(c) as Box<dyn CustomOp2 + Send + Sync>);
 
-    let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); //Ici ça renvoie None : Pb
-    //le none vient du BackpropOp qui est un wrapper autour de Option<Op> qui vérfie que les tenseurs doivent être tracké (avec track_op())
+    let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); 
     
     let tensor_out = from_storage(storage, shape, op, false);
     println!("should track op : {}", tensor_out.track_op());
