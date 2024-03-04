@@ -628,7 +628,7 @@ mod tests {
             H as u32,
             W as u32,
             tile_bounds,
-            clip_thresh,
+            Some(clip_thresh),
         )?;
 
         println!("IIIIIIICIIIIIII");
