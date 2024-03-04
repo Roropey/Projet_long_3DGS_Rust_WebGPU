@@ -85,7 +85,7 @@ pub fn ProjectGaussians(
     img_height: u32,
     img_width: u32,
     tile_bounds: (u32, u32, u32),
-    clip_thresh: f32,
+    clip_thresh: Option<f32>,
 ) -> Result<(
     candle_core::Tensor,
     candle_core::Tensor,
@@ -95,6 +95,7 @@ pub fn ProjectGaussians(
     candle_core::Tensor,
     candle_core::Tensor,
 )> {
+    let clip_thresh = clip_thresh.unwrap_or(0.01);
     let mut max = 0;
     let a = [means3d, scales, quats];
     for arg in a.iter() {
@@ -417,7 +418,7 @@ mod tests {
             H as u32,
             W as u32,
             tile_bounds,
-            clip_thresh,
+            Some(clip_thresh),
         )?;
         println!("on est sorti de la fonction");
         /*cov3d:  tensor([[1., 0., 0., 1., 0., 1.],

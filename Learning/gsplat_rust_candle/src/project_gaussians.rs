@@ -2,7 +2,7 @@ use candle::Tensor;
 use candle_core as candle;
 
 
-use crate::cuda::customop;
+use super::cuda::customop;
 
 
 fn project_gaussian(
@@ -54,22 +54,7 @@ fn project_gaussian(
         - **cov3d** (Tensor): 3D covariances.
     */
     let clip_thresh = clip_thresh.unwrap_or(0.01);
-    _ProjectGaussians.apply(
-        means3d.contiguous(),
-        scales.contiguous(),
-        glob_scale,
-        quats.contiguous(),
-        viewmat.contiguous(),
-        projmat.contiguous(),
-        fx,
-        fy,
-        cx,
-        cy,
-        img_height,
-        img_width,
-        tile_bounds,
-        clip_thresh,
-    )
-    // Besoin de définir la classe qui se base sur torch.autograd.Fonction...
+    customop::ProjectGaussians(&means3d, &scales, glob_scale, &quats, &viewmat, &projmat, fx, fy, cx, cy, img_height, img_width, tile_bounds, Some(clip_thresh))
+    
 
 }

@@ -1,8 +1,8 @@
 use candle_core as candle;
 use candle::{CustomOp2, CudaStorage, CpuStorage, Layout, Shape, Tensor, Device};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW};
-#[cfg(feature = "cuda")]
-use super::cuda::cuda_kernels::SH;
+//#[cfg(feature = "cuda")]
+use crate::cuda::cuda_kernels::SH;
 
 
 
