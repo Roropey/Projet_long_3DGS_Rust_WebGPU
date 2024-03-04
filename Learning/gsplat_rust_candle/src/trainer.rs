@@ -7,8 +7,9 @@ use candle_nn::{AdamW, Optimizer, ParamsAdamW,  ops::sigmoid};
 use num;
 //use tch::nn::Adam;
 
-use crate::project_gaussians;
-use crate::rasterize;
+//use crate::project_gaussians;
+use super::cuda::customop;
+//use crate::rasterize;
 
 pub struct Trainer{
     device: Device,
@@ -139,13 +140,13 @@ impl Trainer {
         let mut frames = Vec::new();
 
         for iter in 0..iterations{
-            let (xys,depths,radii,conics,compensation,num_tiles_hit,cov3d) = project_gaussians::_ProjectGaussian.apply(
-                self.means,
-                self.scales,
+            let (xys,depths,radii,conics,compensation,num_tiles_hit,cov3d) = customop::ProjectGaussians(
+                &self.means,                
+                &self.scales,
                 1,
-                self.quats,
-                self.viewmat,
-                self.viewmat,
+                &self.quats,
+                &self.viewmat,
+                &self.viewmat,
                 self.focal,
                 self.focal,
                 self.w / 2,
@@ -153,6 +154,7 @@ impl Trainer {
                 self.h,
                 self.w,
                 self.tile_bounds,
+                None // none pour le threshold car sélection de la valeur par défaut 
             );
             //cuda.synchronize ... Pas trouver comment faire
             let out_img = rasterize::_RasterizeGaussians.apply(
