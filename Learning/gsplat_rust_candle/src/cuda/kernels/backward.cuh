@@ -32,7 +32,7 @@ extern "C" __global__ void project_gaussians_backward_kernel(
 );
 
 // compute jacobians of output image wrt binned and sorted gaussians
-__global__ void nd_rasterize_backward_kernel(
+extern "C" __global__ void nd_rasterize_backward_kernel(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -54,11 +54,10 @@ __global__ void nd_rasterize_backward_kernel(
     float2* __restrict__ v_xy,
     float3* __restrict__ v_conic,
     float* __restrict__ v_rgb,
-    float* __restrict__ v_opacity,
-    float* __restrict__ workspace
+    float* __restrict__ v_opacity
 );
 
-__global__ void rasterize_backward_kernel(
+extern "C" __global__ void rasterize_backward_kernel(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -73,7 +72,7 @@ __global__ void rasterize_backward_kernel(
     const float* __restrict__ opacities,
     const float3& __restrict__ background,
     const float* __restrict__ final_Ts,
-    const int* __restrict__ final_index,
+    const float* __restrict__ final_index,
     const float3* __restrict__ v_output,
     const float* __restrict__ v_output_alpha,
     float2* __restrict__ v_xy,

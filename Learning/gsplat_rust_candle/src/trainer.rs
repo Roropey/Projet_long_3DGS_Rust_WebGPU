@@ -157,17 +157,17 @@ impl Trainer {
                 None // none pour le threshold car sélection de la valeur par défaut 
             );
             //cuda.synchronize ... Pas trouver comment faire
-            let out_img = rasterize::_RasterizeGaussians.apply(
-                xys,
-                depths,
-                radii,
-                conics,
-                num_tiles_hit,
+            let out_img = customop::RasterizeGaussians(
+                &xys,
+                &depths,
+                &radii,
+                &conics,
+                &num_tiles_hit,
                 sigmoid(&self.rgbs).unwrap(),
                 sigmoid(&self.opacities).unwrap(),
                 self.h,
                 self.w,
-                self.background,
+                &self.background,
             );
             //cuda.synchronize ... Pas trouver comment faire
             let loss = mse_loss(out_img,&self.gt_image).unwrap();
