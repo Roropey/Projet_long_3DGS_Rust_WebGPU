@@ -10,7 +10,7 @@ use candle_core::op::BackpropOp;
 use candle_core::tensor::from_storage;
 use candle_core::CpuStorage;
 use candle_core::CudaStorage;
-use candle_core::CustomOp1;
+use candle_core::CustomOp2;
 use candle_core::Device;
 use candle_core::Tensor;
 use candle_core::{Layout, Result, Shape};
@@ -266,7 +266,7 @@ fn get_cuda_slice<'a>(
 ) -> Result<CudaView<'a, f32>> {
     let cuda_slice = cuda_storage.as_cuda_slice::<f32>()?;
     let cuda_slice = match layout.contiguous_offsets() {
-        None => candle_core::bail!("means 3d input has to be contiguous"),
+        None => candle_core::bail!("input frome {:#?} has to be contiguous", layout),
         Some((o1, o2)) => cuda_slice.slice(o1..o2),
     };
     Ok(cuda_slice)
@@ -283,24 +283,55 @@ fn to_tensor(slice: CudaSlice<f32>, dev: CudaDevice, shape: Shape) -> Result<Ten
     Ok(tensor)
 }
 
-impl CustomOp1 for ProjectGaussians {
+impl CustomOp2 for ProjectGaussians {
     fn name(&self) -> &'static str {
         "project-3d-gaussians"
     }
 
-    fn cpu_fwd(&self, storage: &CpuStorage, layout: &Layout) -> Result<(CpuStorage, Shape)> {
-        Ok((storage.try_clone(layout)?, layout.shape().clone()))
+    fn cpu_fwd(
+        &self,
+        s1: &CpuStorage,
+        l1: &Layout,
+        s2: &CpuStorage,
+        l2: &Layout,
+    ) -> Result<(CpuStorage, Shape)>{
+        Ok((s1.try_clone(l1)?, l1.shape().clone()))
     }
+    
 
-    fn bwd(&self, _arg: &Tensor, _res: &Tensor, _grad_res: &Tensor) -> Result<Option<Tensor>> {
-        let num_points = _arg.shape().dims();
+    fn bwd(
+        &self,
+        _arg1: &Tensor,
+        _arg2: &Tensor,
+        _res: &Tensor,
+        _grad_res: &Tensor,
+    ) -> Result<(Option<Tensor>, Option<Tensor>)> {
+        let num_points = _arg1.shape().dims();
         let num_points = num_points[0];
 
-        let means3d = _arg.narrow(1, 0, 3)?;
-        let scales = _arg.narrow(1, 3, 3)?;
-        let quats = _arg.narrow(1, 6, 4)?;
+        let means3d = _arg1.narrow(1, 0, 3)?;
+        let means3d = means3d.contiguous()?;
+        let scales = _arg1.narrow(1, 3, 3)?;
+        let scales = scales.contiguous()?;
+        let quats = _arg1.narrow(1, 6, 4)?;
+        let quats = quats.contiguous()?;
+
+        let projmat = _arg2.narrow(1,0,4)?;
+        let projmat = projmat.contiguous()?;
+        let viewmat = _arg2.narrow(1,4,4)?;
+        let viewmat = viewmat.contiguous()?;
+
+        println!("on est par ici");
 
         let dev = get_dev(&means3d)?;
+
+        let (storage, layout) = viewmat.storage_and_layout();
+        let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
+        let slice_viewmat = get_cuda_slice(&cuda_storage, layout.clone())?;
+
+        let (storage, layout) = projmat.storage_and_layout();
+        let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
+        let slice_projmat = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = means3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
@@ -311,6 +342,9 @@ impl CustomOp1 for ProjectGaussians {
         let slice_scales = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = quats.storage_and_layout();
+
+        println!("par exemple, le layout de quats est {:#?}", layout);
+
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
         let slice_quats = get_cuda_slice(&cuda_storage, layout.clone())?;
 
@@ -321,8 +355,11 @@ impl CustomOp1 for ProjectGaussians {
         let dst_v_cov2d = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
 
         let cov3d = _res.narrow(1, 0, 6)?;
+        let cov3d = cov3d.contiguous()?;
         let radii = _res.narrow(1, 9, 1)?;
+        let radii = radii.contiguous()?;
         let conics = _res.narrow(1, 10, 3)?;
+        let conics = conics.contiguous()?;
 
         let (storage, layout) = cov3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
@@ -337,8 +374,11 @@ impl CustomOp1 for ProjectGaussians {
         let slice_conics = get_cuda_slice(&cuda_storage, layout.clone())?;
 
         let v_xy = _grad_res.narrow(1, 6, 2)?;
+        let v_xy = v_xy.contiguous()?;
         let v_depth = _grad_res.narrow(1, 8, 1)?;
+        let v_depth = v_depth.contiguous()?;
         let v_conics = _grad_res.narrow(1, 10, 3)?;
+        let v_conics = v_conics.contiguous()?;
 
         let (storage, layout) = v_xy.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
@@ -358,8 +398,8 @@ impl CustomOp1 for ProjectGaussians {
             (&slice_scales).as_kernel_param(),
             self.glob_scale.as_kernel_param(),
             (&slice_quats).as_kernel_param(),
-            //viewmat,
-            //projmat,
+            (&slice_viewmat).as_kernel_param(),
+            (&slice_projmat).as_kernel_param(),
             self.fx.as_kernel_param(),
             self.fy.as_kernel_param(),
             self.cx.as_kernel_param(),
@@ -367,7 +407,7 @@ impl CustomOp1 for ProjectGaussians {
             self.img_height.as_kernel_param(),
             self.img_width.as_kernel_param(),
             (&slice_cov3d).as_kernel_param(),
-            (&slice_radii).as_kernel_param(), //il faudra modifier le kernel cuda pour qu'il prenne un tensor float et pas int
+            (&slice_radii).as_kernel_param(), 
             (&slice_conics).as_kernel_param(),
             (&slice_v_xy).as_kernel_param(),
             (&slice_v_depth).as_kernel_param(),
@@ -407,7 +447,7 @@ impl CustomOp1 for ProjectGaussians {
 
         let gradtot = Tensor::cat(&[v_means3d, v_scales, v_quats], 1)?;
         let gradtot = gradtot.contiguous()?;
-        Ok(Some(gradtot))
+        Ok((Some(gradtot),None))
 
         //ptetre ici faudra modifier l'op de backprop pour que ça fasse pas n'imp
         //comme dans customop
@@ -441,7 +481,6 @@ mod test {
     }
     // unsafe fn launch(self, cfg: LaunchConfig, params: Params) -> Result<(), result::DriverError>;
     #[test]
-
     fn dummy_launch() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dev = CudaDevice::new(0)?;
         let num_points = 1;
@@ -588,8 +627,16 @@ mod test {
             shared_mem_bytes: 0,
         };
         unsafe { func.launch(cfg, params) };
-
-
-
     }
+
+    /* #[test]
+    #[ignore]
+    fn test_bwd(){
+        let pdev = CudaDevice::new(0);
+        //Defininf every tensor that will be part of _arg1 :
+        let means3d = Tensor::from_shape(vec![1, 3], &vec![0.0, 0.0, 0.0]).unwrap();
+        let scales = Tensor::from_shape(vec![1, 3], &vec![0.0, 0.0, 0.0]).unwrap();
+        let quats = Tensor::from_shape(vec![1, 4], &vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+        
+    } */
 }

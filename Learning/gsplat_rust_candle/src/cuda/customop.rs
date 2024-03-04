@@ -1,10 +1,10 @@
 use candle_core::backend::BackendDevice;
+use candle_core::CustomOp2;
 use candle_core::backend::BackendStorage;
 use candle_core::cuda_backend::{CudaDevice, WrapErr};
 use candle_core::op::BackpropOp;
 use candle_core::op::Op;
 use candle_core::tensor::from_storage;
-use candle_core::CustomOp1;
 use candle_core::Device;
 use candle_core::Result;
 use candle_core::Shape;
@@ -108,7 +108,15 @@ pub fn ProjectGaussians(
         }
     }
     let tensor_in = Tensor::cat(&a, 1)?;
-
+    let tensor_in = tensor_in.contiguous()?;
+    let (_,layout) = tensor_in.storage_and_layout();
+    println!("layout de tensor_in : {:#?}", layout);
+    println!("should track op : {}", tensor_in.track_op());
+    let projview = Tensor::cat(&[projmat, viewmat], 1)?;
+    let projview = projview.contiguous()?;
+    let (_,projview_layout) = projview.storage_and_layout();
+    println!("should track op : {}", projview.track_op());
+    println!("layout de projview : {:#?}", projview_layout);
     let c = super::bindings::ProjectGaussians {
         glob_scale,
         fx,
@@ -237,16 +245,28 @@ pub fn ProjectGaussians(
 
     println!("layout de tensortot: {:#?}", layout);
 
-    let structc = Arc::new(Box::new(c) as Box<dyn CustomOp1 + Send + Sync>);
+    let structc = Arc::new(Box::new(c) as Box<dyn CustomOp2 + Send + Sync>);
 
-    let op = BackpropOp::new1(&tensor_in, |s| Op::CustomOp1(s, structc.clone()));
+    let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); //Ici ça renvoie None : Pb
+    //le none vient du BackpropOp qui est un wrapper autour de Option<Op> qui vérfie que les tenseurs doivent être tracké (avec track_op())
+    
     let tensor_out = from_storage(storage, shape, op, false);
+    println!("should track op : {}", tensor_out.track_op());
+    match tensor_out.op() {
+        Some(op) => println!("some op fw"),
+        None => println!("no op fw")
+    }
+
+    println!("tensor_out id : {:?}", tensor_out.id());
 
     let (_, tensor_out_layout) = tensor_out.storage_and_layout();
     println!("layout de tensor_out : {:#?}", tensor_out_layout);
 
     println!("tensor_out apres from_storage : {}", tensor_out);
 
+    println!("tensour_out is variable : {}", tensor_out.is_variable());
+    println!("tensor_in is variable : {}", tensor_in.is_variable());
+    
     //la backpropagation va marcher puisque narrow qui va associer l'opération Backprop narrow aux tenseurs de sorte à ce que les gradients des tenseurs
     //de sortie reforme un tenseur unique de ces gradient, qui pourra etre rentré dans le backward de ProjectGaussian (le struct) qu'on re splitera pour donner au kernel cuda
     //et les gradients de seront remis dans 1 gradient dans bckward de ProjectGaussian(le struct) qui sera ensuite re-split dans les bons tenseur par la backpropagation grace à l'opération Cat
@@ -257,6 +277,8 @@ pub fn ProjectGaussians(
     let cov3d = tensor_out.narrow(1, 0, 6)?;
 
     println!("cov3d apres narrow: {}", cov3d);
+
+    
 
     let xys = tensor_out.narrow(1, 6, 2)?;
     let depth = tensor_out.narrow(1, 8, 1)?;
@@ -359,7 +381,7 @@ mod tests {
      */
 
     #[test]
-
+    #[ignore]
     fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let device = Device::new_cuda(0)?;
         let _num_points = 2;
@@ -430,7 +452,7 @@ mod tests {
                 [0.0049, -0.0000, 0.0049]], device='cuda:0')
         compensation:  tensor([0.9985, 0.9985], device='cuda:0')
         num_tiles_hit:  tensor([36, 36], device='cuda:0', dtype=torch.int32) */
-        let _python_cov3d = candle_core::Tensor::from_slice(
+        /* let _python_cov3d = candle_core::Tensor::from_slice(
             &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
             &candle_core::Shape::from_dims(&[2, 6]),
             &device,
@@ -464,7 +486,7 @@ mod tests {
             &[36 as u32, 36 as u32],
             &candle_core::Shape::from_dims(&[2]),
             &device,
-        )?;
+        )?; */
         println!("cov3d : {}", cov3d);
         println!("xys : {}", xys);
         println!("depths : {}", depths);
@@ -547,4 +569,104 @@ mod tests {
         let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = c.dummy_fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
         Ok(())
     } */
+    #[test]
+    
+    fn test_dummy_bwd() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let device = Device::new_cuda(0)?;
+        let _num_points = 2;
+        let means3d_slice: &[f32] = &[0.0, 0.0, 10.0, 0.0, 0.0, 10.0];
+        let means3d = candle_core::Tensor::from_slice(
+            means3d_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let scales_slice: &[f32] = &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let scales = candle_core::Tensor::from_slice(
+            scales_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let glob_scale = 1.0;
+        let quats_slice: &[f32] = &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let quats = candle_core::Tensor::from_slice(
+            quats_slice,
+            &candle_core::Shape::from_dims(&[2, 4]),
+            &device,
+        )?;
+        //let quats = quats / quats.norm(candle_core::Norm::L2, &[1], true);
+        let H = 512;
+        let W = 512;
+        let cx = W as f32 / 2.0;
+        let cy = H as f32 / 2.0;
+        let fx = W as f32 / 2.0;
+        let fy = W as f32 / 2.0;
+        let clip_thresh = 0.01;
+        let viewmat_slice: &[f32] = &[
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        let viewmat = candle_core::Tensor::from_slice(
+            viewmat_slice,
+            &candle_core::Shape::from_dims(&[4, 4]),
+            &device,
+        )?;
+        let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0, &device);
+        let _fullmat = projmat.matmul(&viewmat);
+        let BLOCK_X = 16;
+        let BLOCK_Y = 16;
+        let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(
+            &means3d,
+            &scales,
+            glob_scale,
+            &quats,
+            &viewmat,
+            &projmat,
+            fx,
+            fy,
+            cx,
+            cy,
+            H as u32,
+            W as u32,
+            tile_bounds,
+            clip_thresh,
+        )?;
+
+        println!("IIIIIIICIIIIIII");
+        println!("cov3d : {}", cov3d);
+        if let Some(op) = cov3d.op() {
+            println!("some op");
+            match op {
+                Op::Narrow(t,_,_,_) => {
+                    println!("narrow");
+                    let grad = Tensor::rand(0.0 as f32,1.0 as f32,t.shape(),t.device())?;
+                    let (_,layout) = t.storage_and_layout();
+                    println!("layout de tensor_in dans backward: {:#?}", layout);
+                    println!("tensor id : {:?}", t.id());
+                    if let Some(op2) = t.op(){
+                        
+                        println!("some op2");
+                        match op2 {
+                            Op::CustomOp2(arg1,arg2,c) => {
+                                println!("customop2");
+                                let structc = c.bwd(&arg1,&arg2,t,&grad)?;
+                                if let (Some(grad),_) = structc {
+                                    println!("grad : {}", grad);
+                                }
+                                else{
+                                    println!("no grad");
+                                }
+                            }
+                            _ => panic!("Op2 n'est pas un CustomOp2")
+                        }
+                    }
+                }
+                _ => panic!("Op n'est pas un Narrow")
+            }
+        }
+        else{
+            println!("no op");
+        }
+
+        Ok(())
+    }
 }

@@ -336,7 +336,10 @@ extern "C" __global__ void project_gaussians_backward_kernel(
     const float4* __restrict__ quats,
     const float* __restrict__ viewmat,
     const float* __restrict__ projmat,
-    const float4 intrins,
+    const float fx,
+    const float fy,
+    const float cx,
+    const float cy,
     const unsigned img_width,
     const unsigned img_height,
     const float* __restrict__ cov3d,
@@ -359,10 +362,6 @@ extern "C" __global__ void project_gaussians_backward_kernel(
     img_size.x = img_width;
     img_size.y = img_height;
     float3 p_world = means3d[idx];
-    float fx = intrins.x;
-    float fy = intrins.y;
-    float cx = intrins.z;
-    float cy = intrins.w;
     // get v_mean3d from v_xy
     v_mean3d[idx] = project_pix_vjp(projmat, p_world, img_size, v_xy[idx]);
 
