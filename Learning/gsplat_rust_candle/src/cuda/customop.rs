@@ -330,8 +330,9 @@ pub fn RasterizeGaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
-    let (out_img,_gaussians_ids_sorted,_tile_bins,final_Ts,_final_idx) = if num_intersects < 1 {
+    let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,final_Ts,_final_idx) = if num_intersects < 1 {
         ((Tensor::ones((img_height as usize,img_width as usize,colors.dim(candle_core::D::Minus1)?),candle_core::DType::F32, xys.device())? * background)?,
+        Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?,
         Tensor::zeros((0,1), candle_core::DType::U32, xys.device())?,
         Tensor::zeros((0,2),candle_core::DType::F32,xys.device())?,
         Tensor::zeros((img_height as usize,img_width as usize), candle_core::DType::F32, xys.device())?,
@@ -370,7 +371,6 @@ pub fn RasterizeGaussians(
                 arg.unsqueeze(0)?;
             }
         }
-        println!("before cat");
         let tensor_gauss = Tensor::cat(&a, 1)?;
         let tensor_gauss = tensor_gauss.contiguous()?;
         let (_,layout) = tensor_gauss.storage_and_layout();
@@ -387,7 +387,6 @@ pub fn RasterizeGaussians(
             background
         };
         
-        println!("before taking stor and layout");
         let (gaussian_ids_sorted_storage, gaussian_ids_sorted_layout) = gaussians_ids_sorted.storage_and_layout();
         let (tile_bins_storage, tile_bins_layout) = tile_bins.storage_and_layout();
         let (xys_storage, xys_layout) = xys.storage_and_layout();
@@ -402,7 +401,6 @@ pub fn RasterizeGaussians(
         let colors_storage = to_cuda_storage(&colors_storage, &colors_layout)?;
         let opacity_storage = to_cuda_storage(&opacity_storage, &opacity_layout)?;
         
-        println!("after taking stor and layout");
 
         let (
             storage_final_Ts,
@@ -425,7 +423,6 @@ pub fn RasterizeGaussians(
             opacity_storage,
             opacity_layout
         )?;
-        println!("after fwd");
         let tensor_final_Ts = from_storage(
             candle_core::Storage::Cuda(storage_final_Ts),
             shape_final_Ts,
@@ -500,12 +497,11 @@ pub fn RasterizeGaussians(
 
         let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?;
         let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?;
+        let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?;
 
-
-        (out_img,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
+        (out_img,out_alpha,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
     };
     if return_alpha {
-        let out_alpha = final_Ts.affine(-1.0,1.0).unwrap(); // Pour faire 1 - final_Ts
         Ok((out_img,Some(out_alpha)))
     } else {
         Ok((out_img,None))
