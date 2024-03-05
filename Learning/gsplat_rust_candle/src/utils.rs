@@ -151,7 +151,7 @@ pub fn map_gaussian_to_intersects(
         Some((o1, o2)) => slice_radii.slice(o1..o2),
     };
 
-    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<f32>().unwrap();
+    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<u32>().unwrap();
     let slice_cum_tiles_hit = match cum_tiles_hit_layout.contiguous_offsets() {
         None => candle_core::bail!("cum_tiles_hit input has to be contiguous"),
         Some((o1, o2)) => slice_cum_tiles_hit.slice(o1..o2),
@@ -316,8 +316,10 @@ pub fn compute_cumulative_intersects(
         - **num_intersects** (int): total number of tile intersections.
         - **cum_tiles_hit** (candle::Tensor): a tensor of cumulated intersections (used for sorting).
     */
+    let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F64)?;
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
-    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<i64>().unwrap() as usize;
+    let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::U32)?;
+    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<u32>().unwrap() as usize;
     // suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     Ok((num_intersects,cum_tiles_hit))
 }
@@ -360,7 +362,9 @@ pub fn bin_and_sort_gaussians(
     let (isect_ids, gaussian_ids )= map_gaussian_to_intersects(
         num_points, num_intersects, xys, depths, radii, cum_tiles_hit, tile_bounds, block_size
     ).unwrap();
+    let isect_ids = isect_ids.to_dtype(candle::DType::F32)?;
     let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
+    let isect_ids = isect_ids.to_dtype(candle::DType::I64)?;
     let isect_ids_sorted = isect_ids.gather(&sorted_indices,0).unwrap();
     //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
     let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0).unwrap();

@@ -111,7 +111,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
-__global__ void map_gaussian_to_intersects(
+extern "C" __global__ void map_gaussian_to_intersects(
     const int num_points,
     const float2* __restrict__ xys,
     const float* __restrict__ depths,
@@ -156,7 +156,7 @@ __global__ void map_gaussian_to_intersects(
 // kernel to map sorted intersection IDs to tile bins
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
-__global__ void get_tile_bin_edges(
+extern "C" __global__ void get_tile_bin_edges(
     const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, int2* __restrict__ tile_bins
 ) {
     unsigned idx = cg::this_grid().thread_rank();

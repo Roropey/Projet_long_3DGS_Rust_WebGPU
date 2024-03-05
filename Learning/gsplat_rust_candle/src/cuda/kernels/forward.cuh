@@ -101,6 +101,6 @@ __global__ void map_gaussian_to_intersects(
     int32_t* __restrict__ gaussian_ids
 );
 
-__global__ void get_tile_bin_edges(
+extern "C" __global__ void get_tile_bin_edges(
     const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, int2* __restrict__ tile_bins
 );
