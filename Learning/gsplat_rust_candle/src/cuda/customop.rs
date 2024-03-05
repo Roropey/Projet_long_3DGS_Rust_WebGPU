@@ -714,6 +714,78 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_rasterize_gaussian_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let device = Device::new_cuda(0)?;
+        let xys_slice: &[f32] = &[255.5000, 255.5000, 255.5000, 255.5000];
+        let xys = candle_core::Tensor::from_slice(
+            xys_slice,
+            &candle_core::Shape::from_dims(&[2, 2]),
+            &device,
+        )?;
+        let depths_slice: &[f32] = &[18.0, 18.0];
+        let depths = candle_core::Tensor::from_slice(
+            depths_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let radii_slice: &[f32] = &[43.0, 43.0];
+        let radii = candle_core::Tensor::from_slice(
+            radii_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let conics_slice: &[f32] = &[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049];
+        let conics = candle_core::Tensor::from_slice(
+            conics_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let num_tiles_hit_slice: &[u32] = &[36, 36];
+        let num_tiles_hit = candle_core::Tensor::from_slice(
+            num_tiles_hit_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let colors_slice: &[f32] = &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0];
+        let colors = candle_core::Tensor::from_slice(
+            colors_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let opacity_slice: &[f32] = &[1.0, 1.0];
+        let opacity = candle_core::Tensor::from_slice(
+            opacity_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let H = 512;
+        let W = 512;
+        let block_width = 16;
+        let background = None;
+        let return_alpha = None;
+
+        let (out_img, out_alpha) = RasterizeGaussians(
+            &xys,
+            &depths,
+            &radii,
+            &conics,
+            &num_tiles_hit,
+            &colors,
+            &opacity,
+            H,
+            W,
+            block_width,
+            background,
+            return_alpha,
+        )?;
+
+        println!("out_img : {}", out_img);
+        println!("out_alpha : {:?}", out_alpha);
+        Ok(())
+    }
+    
+
     /* #[test]
     #[ignore]
     fn full_test_project_gaussians_forward(){
