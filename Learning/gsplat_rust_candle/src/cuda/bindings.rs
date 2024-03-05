@@ -261,11 +261,23 @@ fn get_dev(tensor: &Tensor) -> Result<CudaDevice> {
     Ok(dev)
 }
 
-fn get_cuda_slice<'a>(
+fn get_cuda_slice_f32<'a>(
     cuda_storage: &'a CudaStorage,
     layout: Layout,
 ) -> Result<CudaView<'a, f32>> {
     let cuda_slice = cuda_storage.as_cuda_slice::<f32>()?;
+    let cuda_slice = match layout.contiguous_offsets() {
+        None => candle_core::bail!("input frome {:#?} has to be contiguous", layout),
+        Some((o1, o2)) => cuda_slice.slice(o1..o2),
+    };
+    Ok(cuda_slice)
+}
+
+fn get_cuda_slice_i64<'a>(
+    cuda_storage: &'a CudaStorage,
+    layout: Layout,
+) -> Result<CudaView<'a, i64>> {
+    let cuda_slice = cuda_storage.as_cuda_slice::<i64>()?;
     let cuda_slice = match layout.contiguous_offsets() {
         None => candle_core::bail!("input frome {:#?} has to be contiguous", layout),
         Some((o1, o2)) => cuda_slice.slice(o1..o2),
@@ -328,26 +340,26 @@ impl CustomOp2 for ProjectGaussians {
 
         let (storage, layout) = viewmat.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_viewmat = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_viewmat = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = projmat.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_projmat = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_projmat = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = means3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_means3d = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_means3d = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = scales.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_scales = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_scales = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = quats.storage_and_layout();
 
         println!("par exemple, le layout de quats est {:#?}", layout);
 
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_quats = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_quats = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let dst_v_means3d = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_v_scales = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
@@ -364,15 +376,15 @@ impl CustomOp2 for ProjectGaussians {
 
         let (storage, layout) = cov3d.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_cov3d = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_cov3d = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = radii.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_radii = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_radii = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = conics.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_conics = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_conics = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let v_xy = _grad_res.narrow(1, 6, 2)?;
         let v_xy = v_xy.contiguous()?;
@@ -383,15 +395,15 @@ impl CustomOp2 for ProjectGaussians {
 
         let (storage, layout) = v_xy.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_v_xy = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_xy = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = v_depth.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_v_depth = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_depth = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let (storage, layout) = v_conics.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
-        let slice_v_conics = get_cuda_slice(&cuda_storage, layout.clone())?;
+        let slice_v_conics = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
 
         let params: &mut [_] = &mut [
             num_points.as_kernel_param(),
@@ -492,19 +504,20 @@ impl RasterizeGaussians {
         Shape,
         candle_core::CudaStorage,
         Shape)>{
-
+        println!("Start fwd");
         let dev = gaussian_ids_sorted_storage.device().clone();
-        let gaussian_ids_sorted_slice = get_cuda_slice(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
-        let tile_bins_slice = get_cuda_slice(&tile_bins_storage, tile_bins_layout.clone())?;
-        let xys_slice = get_cuda_slice(&xys_storage, xys_layout.clone())?;
-        let conics_slice = get_cuda_slice(&conics_storage, conics_layout.clone())?;
-        let colors_slice = get_cuda_slice(&colors_storage, colors_layout.clone())?;
-        let opacity_slice = get_cuda_slice(&opacity_storage, opacity_layout.clone())?;
+        let gaussian_ids_sorted_slice = get_cuda_slice_i64(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
+        let tile_bins_slice = get_cuda_slice_i64(&tile_bins_storage, tile_bins_layout.clone())?;
+        let xys_slice = get_cuda_slice_f32(&xys_storage, xys_layout.clone())?;
+        let conics_slice = get_cuda_slice_f32(&conics_storage, conics_layout.clone())?;
+        let colors_slice = get_cuda_slice_f32(&colors_storage, colors_layout.clone())?;
+        let opacity_slice = get_cuda_slice_f32(&opacity_storage, opacity_layout.clone())?;
         
         let (background_storage, background_layout) = self.background.storage_and_layout();
         let background_storage = super::customop::to_cuda_storage(&background_storage, &background_layout)?;
-        let background_slice = get_cuda_slice(&background_storage, background_layout.clone())?;
+        let background_slice = get_cuda_slice_f32(&background_storage, background_layout.clone())?;
         
+        println!("get func");
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_forward", FORWARD)?
         } else {
@@ -618,25 +631,25 @@ impl CustomOp3 for RasterizeGaussians {
         
         let (xys_st, xys_l) = xys.storage_and_layout();
         let xys_st = super::customop::to_cuda_storage(&xys_st, &xys_l)?;
-        let slice_xys = get_cuda_slice(&xys_st, xys_l.clone())?;
+        let slice_xys = get_cuda_slice_f32(&xys_st, xys_l.clone())?;
         let (conics_st, conics_l) = conics.storage_and_layout();
         let conics_st = super::customop::to_cuda_storage(&conics_st, &conics_l)?;
-        let slice_conics = get_cuda_slice(&conics_st, conics_l.clone())?;
+        let slice_conics = get_cuda_slice_f32(&conics_st, conics_l.clone())?;
         let (colors_st, colors_l) = colors.storage_and_layout();
         let colors_st = super::customop::to_cuda_storage(&colors_st, &colors_l)?;
-        let slice_colors = get_cuda_slice(&colors_st, colors_l.clone())?;
+        let slice_colors = get_cuda_slice_f32(&colors_st, colors_l.clone())?;
         let (opacity_st, opacity_l) = opacity.storage_and_layout();
         let opacity_st = super::customop::to_cuda_storage(&opacity_st, &opacity_l)?;
-        let slice_opacity = get_cuda_slice(&opacity_st, opacity_l.clone())?;
+        let slice_opacity = get_cuda_slice_f32(&opacity_st, opacity_l.clone())?;
         let (gaussians_ids_sorted_st, gaussians_ids_sorted_l) = gaussians_ids_sorted.storage_and_layout();
         let gaussians_ids_sorted_st = super::customop::to_cuda_storage(&gaussians_ids_sorted_st, &gaussians_ids_sorted_l)?;
-        let slice_gaussians_ids_sorted = get_cuda_slice(&gaussians_ids_sorted_st, gaussians_ids_sorted_l.clone())?;
+        let slice_gaussians_ids_sorted = get_cuda_slice_i64(&gaussians_ids_sorted_st, gaussians_ids_sorted_l.clone())?;
         let (tile_bins_st, tile_bins_l) = tile_bins.storage_and_layout();
         let tile_bins_st = super::customop::to_cuda_storage(&tile_bins_st, &tile_bins_l)?;
-        let slice_tile_bins = get_cuda_slice(&tile_bins_st, tile_bins_l.clone())?;
+        let slice_tile_bins = get_cuda_slice_i64(&tile_bins_st, tile_bins_l.clone())?;
         let (background_st, background_l) = self.background.storage_and_layout();
         let background_st = super::customop::to_cuda_storage(&background_st, &background_l)?;
-        let slice_background = get_cuda_slice(&background_st, background_l.clone())?;
+        let slice_background = get_cuda_slice_f32(&background_st, background_l.clone())?;
         
         let dev = xys_st.device();
 
@@ -652,16 +665,16 @@ impl CustomOp3 for RasterizeGaussians {
 
         let (v_out_img_st, v_out_img_l) = v_out_img.storage_and_layout();
         let v_out_img_st = super::customop::to_cuda_storage(&v_out_img_st, &v_out_img_l)?;
-        let slice_v_out_img = get_cuda_slice(&v_out_img_st, v_out_img_l.clone())?;
+        let slice_v_out_img = get_cuda_slice_f32(&v_out_img_st, v_out_img_l.clone())?;
         let (final_Ts_st, final_Ts_l) = final_Ts.storage_and_layout();
         let final_Ts_st = super::customop::to_cuda_storage(&final_Ts_st, &final_Ts_l)?;
-        let slice_final_Ts = get_cuda_slice(&conics_st, conics_l.clone())?;
+        let slice_final_Ts = get_cuda_slice_f32(&conics_st, conics_l.clone())?;
         let (final_index_st, final_index_l) = final_index.storage_and_layout();
         let final_index_st = super::customop::to_cuda_storage(&final_index_st, &final_index_l)?;
-        let slice_final_index = get_cuda_slice(&final_index_st, final_index_l.clone())?;
+        let slice_final_index = get_cuda_slice_f32(&final_index_st, final_index_l.clone())?;
         let (v_out_alpha_st, v_out_alpha_l) = v_out_alpha.storage_and_layout();
         let v_out_alpha_st = super::customop::to_cuda_storage(&v_out_alpha_st, &v_out_alpha_l)?;
-        let slice_v_out_alpha = get_cuda_slice(&v_out_alpha_st, v_out_alpha_l.clone())?;
+        let slice_v_out_alpha = get_cuda_slice_f32(&v_out_alpha_st, v_out_alpha_l.clone())?;
         let num_points = xys.dim(0)?;
         let dst_v_xy = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         let dst_v_conic = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
