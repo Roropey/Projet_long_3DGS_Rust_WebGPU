@@ -318,9 +318,13 @@ pub fn compute_cumulative_intersects(
     let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F64)?;
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
     let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::U32)?;
-    println!("cum_tiles_hit info {:?}",cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<u32>().unwrap()[0]);
-    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<u32>().unwrap()[0] as usize;
-    // suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
+    let intermed_recup = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap();
+    let mut num_intersects:usize;
+    if intermed_recup.rank()==0{
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<u32>().unwrap() as usize;
+    } else {
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<u32>().unwrap()[0] as usize;
+    }// suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     Ok((num_intersects,cum_tiles_hit))
 }
 

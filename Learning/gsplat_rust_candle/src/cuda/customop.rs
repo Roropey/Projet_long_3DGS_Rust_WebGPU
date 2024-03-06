@@ -372,6 +372,9 @@ pub fn RasterizeGaussians(
                 arg.unsqueeze(0)?;
             }
         }
+        println!("conics.shape() : {:#?}", conics.shape());
+        println!("colors.shape() : {:#?}", colors.shape());
+        println!("opacity.shape() : {:#?}", opacity.shape());
         let tensor_gauss = Tensor::cat(&a, 1)?;
         let tensor_gauss = tensor_gauss.contiguous()?;
         let (_,layout) = tensor_gauss.storage_and_layout();
@@ -758,7 +761,7 @@ mod tests {
         let opacity_slice: &[f32] = &[1.0, 1.0];
         let opacity = candle_core::Tensor::from_slice(
             opacity_slice,
-            &candle_core::Shape::from_dims(&[2]),
+            &candle_core::Shape::from_dims(&[2,1]),
             &device,
         )?;
         let H = 512;
