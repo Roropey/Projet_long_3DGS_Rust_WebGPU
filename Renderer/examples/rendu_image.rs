@@ -12,7 +12,6 @@ async fn run() {
     let file = File::open(env::args().nth(1).unwrap()).unwrap();
     let instance = wgpu::Instance::default();
 
-
     let adapter = instance
     .request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -21,9 +20,6 @@ async fn run() {
     })
     .await
     .expect("No suitable GPU adapters found on the system!");
-
-    let adapter_info = adapter.get_info();
-    log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
     let required_features = wgpu::Features::default();
     let required_limits = wgpu::Limits {
@@ -51,13 +47,13 @@ async fn run() {
         .expect("Unable to find a suitable GPU adapter!");
 
 
-    let texture = init_output_texture(&device, 1024 ,1024);  //size.width
+    let texture = init_output_texture(&device, 896,612);  //size.width
     let surface_configuration = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: wgpu::TextureFormat::Rgba8Unorm, 
         view_formats: vec![wgpu::TextureFormat::Rgba8Unorm],
-        width: 1024,//size.width,
-        height: 1024,
+        width: 896,//size.width,
+        height: 612,
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque, 
     };
@@ -86,12 +82,11 @@ async fn run() {
     scene.load_chunk(&queue, &mut file, file_header_size, 0..splat_count);
 
     let viewport_size = wgpu::Extent3d {
-        width: 1024,
-        height: 1024,
+        width: 896,
+        height: 612,
         depth_or_array_layers: 1,};
-
-    let camera_rotation = Rotor::one(); //Rotor::new(1.0, 1.0,-1.0,1.0);
-    let camera_translation =Translator::one(); // Translator::new(1.0,-3.0026817933840073, 1.4007726437615275, -2.2284005560263305); //Translator::one();
+    let camera_rotation = Rotor::one(); //Rotor::new(0.5,0.65934664, -0.051398516, 0.04705413);
+    let camera_translation = Translator::one(); //Translator::new(1.0,-0.10550948704559542, 0.6733392456924886, 2.7656673479604907); //Translator::one();
 
     let camera_motor = camera_translation.geometric_product(camera_rotation);
 
