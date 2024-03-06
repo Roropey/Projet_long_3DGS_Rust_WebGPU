@@ -263,6 +263,7 @@ fn main(height:Option<usize>,
     let lr = lr.unwrap_or(0.01);
     if Some(img_path){
         let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
+        let img_path = img_path.unwrap();
     } else {
         // Création d'un vecteur 3 dimension 
         // Théoriquement : 
@@ -303,6 +304,7 @@ fn main(height:Option<usize>,
         }
 
         let gt_image = Tensor::from_vec(tot,(height,width,3),&Device::Cpu)?;
+        let img_path = "./";
     }
     let mut trainer = Trainer::__init__(img_path, gt_image, Some(num_points));
     trainer.train(Some(iterations), Some(lr), Some(save_imgs));
