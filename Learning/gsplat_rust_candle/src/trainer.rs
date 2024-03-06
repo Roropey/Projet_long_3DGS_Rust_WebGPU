@@ -261,11 +261,49 @@ fn main(height:Option<usize>,
     let iterations = iterations.unwrap_or(1000);
     let save_imgs = save_imgs.unwrap_or(true);
     let lr = lr.unwrap_or(0.01);
-    //if Some(img_path){
-    let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
-    //} //else {
-        //Vois pas comment accéder à certaines valeurs d'un torseurs pour les modifiés
-    // }
+    if Some(img_path){
+        let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
+    } else {
+        // Création d'un vecteur 3 dimension 
+        // Théoriquement : 
+        // Rouge Vert
+        // Noir Bleu
+        let mut tot = Vec::new();
+        // Couche rouge
+        for i in 0..height{
+            for j in 0..width{
+                if j < 256/2 && i < 256/2{
+                    tot.push(1.0);
+                } else {
+                    tot.push(0.0);
+                }
+            }
+        }
+        // Couche vert
+        let vert = Vec::new();
+        for i in 0..height{
+            for j in 0..width{
+                if j > 256/2 && i < 256/2{
+                    tot.push(1.0);
+                } else {
+                    tot.push(0.0);
+                }
+            }
+        }
+        // Couche bleu
+        for i in 1..height{
+            let ligne = Vec::new();
+            for j in 0..width{
+                if j > 256/2 && i > 256/2{
+                    tot.push(1.0);
+                } else {
+                    tot.push(0.0);
+                }
+            }
+        }
+
+        let gt_image = Tensor::from_vec(tot,(height,width,3),&Device::Cpu)?;
+    }
     let mut trainer = Trainer::__init__(img_path, gt_image, Some(num_points));
     trainer.train(Some(iterations), Some(lr), Some(save_imgs));
     
