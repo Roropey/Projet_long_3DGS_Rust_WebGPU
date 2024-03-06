@@ -330,7 +330,7 @@ pub fn RasterizeGaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
-    let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,final_Ts,_final_idx) = if num_intersects < 1 {
+    let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,_final_Ts,_final_idx) = if num_intersects < 1 {
         ((Tensor::ones((img_height as usize,img_width as usize,colors.dim(candle_core::D::Minus1)?),candle_core::DType::F32, xys.device())? * background)?,
         Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?,
         Tensor::zeros((0,1), candle_core::DType::U32, xys.device())?,

@@ -262,7 +262,7 @@ fn main(height:Option<usize>,
     let save_imgs = save_imgs.unwrap_or(true);
     let lr = lr.unwrap_or(0.01);
     //if Some(img_path){
-    let gt_image = load_image_and_resize(img_path, width, height);
+    let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
     //} //else {
         //Vois pas comment accéder à certaines valeurs d'un torseurs pour les modifiés
     // }
