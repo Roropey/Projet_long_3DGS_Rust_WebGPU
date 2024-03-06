@@ -1,6 +1,4 @@
 // Implementation basé sur le simple_trainer.py d'exmpales de gsplat
-
-
 use candle_core as candle;
 use candle::{Tensor, Var, Device};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW,  ops::sigmoid};
@@ -14,11 +12,11 @@ use super::cuda::customop;
 pub struct Trainer{
     device: Device,
     gt_image: Tensor,
-    num_points: usize,
-    h: usize,
-    w: usize,
-    focal: f64,
-    tile_bounds: (isize,isize,isize),
+    num_points: u32,
+    h: u32,
+    w: u32,
+    focal: f32,
+    tile_bounds: (u32,u32,u32),
     img_size: Tensor,
     block: Tensor,
     means: Var, // Changement de tensor à Var pour avoir élément variable/modifiable
@@ -34,27 +32,27 @@ pub struct Trainer{
 impl Trainer {
     pub fn __init__(
         gt_image: Tensor,
-        num_points: Option<usize> // When use, put Some(...), if default value, put None
+        num_points: Option<u32> // When use, put Some(...), if default value, put None
     )-> Self{
-        let num_points = num_points.unwrap_or(2000);
+        let num_points: u32 = num_points.unwrap_or(2000 as u32);
         let device = Device::new_cuda(0).unwrap();
         let gt_image = gt_image.to_device(&device).unwrap();
-        let num_points = num_points;
+        let num_points: u32 = num_points;
 
-        let block_x = 16;
-        let block_y = 16;
-        let fov_x = std::f64::consts::PI / 2.0;
-        let h = gt_image.dim(0).unwrap();
-        let w = gt_image.dim(1).unwrap();
-        let focal = 0.5*(w as f64) / ((0.5*fov_x).tan());
+        let block_x: u32 = 16;
+        let block_y: u32 = 16;
+        let fov_x: f32 = std::f32::consts::PI / 2.0;
+        let h: u32 = gt_image.dim(0).unwrap().try_into().unwrap();
+        let w: u32 = gt_image.dim(1).unwrap().try_into().unwrap();
+        let focal: f32 = 0.5*(w as f32) / ((0.5*fov_x).tan());
         let tile_bounds = (
-            num::integer::div_floor(w as isize + block_x as isize - 1, block_x as isize),
-            num::integer::div_floor(h as isize + block_y as isize - 1, block_y as isize),
-            1
+            num::integer::div_floor(w as isize + block_x as isize - 1, block_x as isize) as u32,
+            num::integer::div_floor(h as isize + block_y as isize - 1, block_y as isize) as u32,
+            1 as u32
         );
         let img_size = Tensor::new(&[w as f32, h as f32, 1.], &device).unwrap();
         let block = Tensor::new(&[block_x as f32, block_y as f32, 1.], &device).unwrap();
-        let (means,scales,quats,rgbs,opacities,viewmat,background) = Trainer::_init_gaussians(num_points,device);
+        let (means,scales,quats,rgbs,opacities,viewmat,background) = Trainer::_init_gaussians(num_points.try_into().unwrap(),device.clone());
         Trainer {device: device,
              gt_image: gt_image,
              num_points: num_points,
@@ -76,13 +74,13 @@ impl Trainer {
         // Random gaussians
         let bd = 2.0;
 
-        let means = Tensor::rand(0.0,1.0,&[num_points,3],&device).unwrap().affine(1.0,-0.5).unwrap().affine(bd,0.0).unwrap();
-        let scales = Tensor::rand(0.0,1.0,&[num_points,3],&device).unwrap();
-        let rgbs = Tensor::rand(0.0,1.0,&[num_points,3],&device).unwrap();
+        let means = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap().affine(1.0,-0.5).unwrap().affine(bd,0.0).unwrap();
+        let scales = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap();
+        let rgbs = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap();
 
-        let u = Tensor::rand(0.0,1.0,&[num_points,1],&device).unwrap();
-        let v = Tensor::rand(0.0,1.0,&[num_points,1],&device).unwrap();
-        let w = Tensor::rand(0.0,1.0,&[num_points,1],&device).unwrap();
+        let u = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
+        let v = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
+        let w = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
 
         let quats = Tensor::cat(
             &[
@@ -93,7 +91,7 @@ impl Trainer {
             ],
             1, //Normalement -1 mais 1 en supposant que c'est selon 1...
         ).unwrap();
-        let opacities = Tensor::ones(&[num_points,1],candle::DType::F64,&device).unwrap(); //Supposer f32 en type
+        let opacities = Tensor::ones(&[num_points,1],candle::DType::F32,&device).unwrap(); //Supposer f32 en type
         let viewmat = Tensor::new(&[
             [1.0f32, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
@@ -137,40 +135,45 @@ impl Trainer {
         ).unwrap(); // Utilisation de AdamW au lieu de Adam (trouve pas Adam alors qu'il existe dans optimizer.rs .unwrap())
         let mse_loss = candle_nn::loss::mse;
 
-        let mut frames = Vec::new();
+        //let mut frames = Vec::new();
 
         for iter in 0..iterations{
-            let (xys,depths,radii,conics,compensation,num_tiles_hit,cov3d) = customop::ProjectGaussians(
+            let (cov3d,xys,depths,radii,conics,compensation,num_tiles_hit) = customop::ProjectGaussians(
                 &self.means,                
                 &self.scales,
-                1,
+                1 as f32,
                 &self.quats,
                 &self.viewmat,
                 &self.viewmat,
                 self.focal,
                 self.focal,
-                self.w / 2,
-                self.h / 2,
+                (self.w / 2) as f32,
+                (self.h / 2) as f32,
                 self.h,
                 self.w,
                 self.tile_bounds,
                 None // none pour le threshold car sélection de la valeur par défaut 
-            );
+            ).unwrap();
             //cuda.synchronize ... Pas trouver comment faire
-            let out_img = customop::RasterizeGaussians(
+            let (out_img,_) = customop::RasterizeGaussians(
                 &xys,
                 &depths,
                 &radii,
                 &conics,
                 &num_tiles_hit,
-                sigmoid(&self.rgbs).unwrap(),
-                sigmoid(&self.opacities).unwrap(),
+                &sigmoid(&self.rgbs).unwrap(),
+                &sigmoid(&self.opacities).unwrap(),
                 self.h,
                 self.w,
-                &self.background,
-            );
+                16,
+                None,
+                None,
+            ).unwrap();
+
+            println!("on est sorti de rasterize");
+
             //cuda.synchronize ... Pas trouver comment faire
-            let loss = mse_loss(out_img,&self.gt_image).unwrap();
+            let loss = mse_loss(&out_img,&self.gt_image).unwrap();
 
             //adam_optimize.zero_grad().unwrap();
             
@@ -184,7 +187,7 @@ impl Trainer {
     }
 }
 
-fn image_path_to_tensor(image_path:&std::path::Path,width:usize,height:usize)-> Tensor{
+fn image_path_to_tensor(image_path:&std::path::Path,width:u32,height:u32)-> Tensor{
     let original_image = image::io::Reader::open(&image_path).unwrap()
             .decode()
             .map_err(candle::Error::wrap).unwrap();
@@ -196,12 +199,19 @@ fn image_path_to_tensor(image_path:&std::path::Path,width:usize,height:usize)-> 
                 )
                 .to_rgb8()
                 .into_raw();
-    Tensor::from_vec(data, (width, height, 3), &Device::Cpu).unwrap().permute((1, 2, 0)).unwrap()
+    Tensor::from_vec(data, (width.try_into().unwrap(), height.try_into().unwrap(), 3), &Device::Cpu).unwrap().permute((1, 2, 0)).unwrap()
 }
 
-fn main(height:Option<usize>,
-    width:Option<usize>,
-    num_points:Option<usize>,
+
+
+
+
+
+
+
+pub fn custom_main(height:Option<u32>,
+    width:Option<u32>,
+    num_points:Option<u32>,
     save_imgs:Option<bool>,
     img_path:&std::path::Path,
     iterations:Option<isize>,

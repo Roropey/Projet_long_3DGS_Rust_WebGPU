@@ -319,6 +319,7 @@ pub fn RasterizeGaussians(
     let background = background.unwrap_or(Tensor::ones(colors.dim(candle_core::D::Minus1)?, candle_core::DType::F32, colors.device()).unwrap());
     let return_alpha = return_alpha.unwrap_or(false);
     assert!(background.shape().dims()[0] == colors.shape().dims()[colors.shape().rank()-1], "Incorrect shape of background color tensor, expected shape {}",colors.shape().dims()[colors.shape().rank()-1]);
+    println!("xys.shape() : {:#?}", xys.shape());
     assert!(xys.shape().rank()==2 && xys.shape().dims()[1] == 2, "xys, must have dimensions (N,2)");
     assert!(colors.shape().rank() == 2, "colors must have dimensions (N,D)");
     let num_points = xys.dim(0)?;
@@ -370,7 +371,6 @@ pub fn RasterizeGaussians(
                 arg.unsqueeze(0)?;
             }
         }
-        println!("before cat");
         let tensor_gauss = Tensor::cat(&a, 1)?;
         let tensor_gauss = tensor_gauss.contiguous()?;
         let (_,layout) = tensor_gauss.storage_and_layout();
@@ -386,8 +386,6 @@ pub fn RasterizeGaussians(
             block_width,
             background
         };
-        
-        println!("before taking stor and layout");
         let (gaussian_ids_sorted_storage, gaussian_ids_sorted_layout) = gaussians_ids_sorted.storage_and_layout();
         let (tile_bins_storage, tile_bins_layout) = tile_bins.storage_and_layout();
         let (xys_storage, xys_layout) = xys.storage_and_layout();
@@ -401,9 +399,9 @@ pub fn RasterizeGaussians(
         let conics_storage = to_cuda_storage(&conics_storage, &conics_layout)?;
         let colors_storage = to_cuda_storage(&colors_storage, &colors_layout)?;
         let opacity_storage = to_cuda_storage(&opacity_storage, &opacity_layout)?;
-        
-        println!("after taking stor and layout");
 
+
+        println!("on va forard rasterize");
         let (
             storage_final_Ts,
             shape_final_Ts,
@@ -425,7 +423,6 @@ pub fn RasterizeGaussians(
             opacity_storage,
             opacity_layout
         )?;
-        println!("after fwd");
         let tensor_final_Ts = from_storage(
             candle_core::Storage::Cuda(storage_final_Ts),
             shape_final_Ts,
@@ -452,9 +449,9 @@ pub fn RasterizeGaussians(
         let tensortot = Tensor::cat(
             &[
                 tensor_out_img,
-                tensor_final_Ts.unsqueeze(2)?,
-                tensor_final_index.unsqueeze(2)?,
-                out_alpha.unsqueeze(2)?,
+                tensor_final_Ts,
+                tensor_final_index,
+                out_alpha,
             ],
             2,
         )?;          
@@ -498,8 +495,8 @@ pub fn RasterizeGaussians(
 
         println!("out_img apres narrow: {}", out_img);        
 
-        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?;
-        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?;
+        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?;
+        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?;
 
 
         (out_img,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
@@ -761,7 +758,7 @@ mod tests {
         let opacity_slice: &[f32] = &[1.0, 1.0];
         let opacity = candle_core::Tensor::from_slice(
             opacity_slice,
-            &candle_core::Shape::from_dims(&[2,1]),
+            &candle_core::Shape::from_dims(&[2]),
             &device,
         )?;
         let H = 512;

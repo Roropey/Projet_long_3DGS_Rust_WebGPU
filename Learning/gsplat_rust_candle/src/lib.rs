@@ -3,3 +3,4 @@ pub mod cuda {
     pub mod cuda_kernels;
     pub mod customop;
 }
+pub mod trainer;
