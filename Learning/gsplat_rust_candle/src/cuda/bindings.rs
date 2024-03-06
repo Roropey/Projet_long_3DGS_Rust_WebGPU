@@ -62,14 +62,14 @@ impl ProjectGaussians {
 
         let dev = devm3d;
 
-        println!("getting slices");
+        //println!("getting slices");
         let slice_m3d = means3d_storage.as_cuda_slice::<f32>()?;
         let slice_sc = scale_storage.as_cuda_slice::<f32>()?;
         let slice_q = quats_storage.as_cuda_slice::<f32>()?;
         let slice_view = viewmat_storage.as_cuda_slice::<f32>()?;
         let slice_proj = projmat_storage.as_cuda_slice::<f32>()?;
 
-        println!("slice creation");
+        //println!("slice creation");
         let slice_m3d = match means3d_layout.contiguous_offsets() {
             None => candle_core::bail!("means 3d input has to be contiguous"),
             Some((o1, o2)) => slice_m3d.slice(o1..o2),
@@ -91,12 +91,12 @@ impl ProjectGaussians {
             Some((o1, o2)) => slice_proj.slice(o1..o2),
         };
 
-        println!("loading kernel");
+        //println!("loading kernel");
         let func = dev.get_or_load_func("project_gaussians_forward_kernel", FORWARD)?; //Cette partie de binding n'est pas fonctionnelle, il faut la revoir
         let num_points = means3d_layout.shape().dims();
         let num_points = num_points[0];
 
-        println!("allocating memory for output tensors");
+        //println!("allocating memory for output tensors");
         let dst_cov3d = unsafe { dev.alloc::<f32>(num_points * 6) }.w()?;
         let dst_xys_d = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
@@ -105,7 +105,7 @@ impl ProjectGaussians {
         let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
         let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
 
-        println!("creating params for kernel launch");
+        //println!("creating params for kernel launch");
         let params: &mut [_] = &mut [
             num_points.as_kernel_param(),
             (&slice_m3d).as_kernel_param(),
@@ -143,10 +143,10 @@ impl ProjectGaussians {
             shared_mem_bytes: 0,
         };
 
-        println!("Launching kernel");
+        println!("Launching project forward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
-        println!("Wrapping output tensors");
+        //println!("Wrapping output tensors");
         let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev);
 
         let dev = dst_cov3d.device().clone();
@@ -167,7 +167,7 @@ impl ProjectGaussians {
         let dev = dst_compensation.device().clone();
         let dst_num_tiles_hit = candle_core::CudaStorage::wrap_cuda_slice(dst_num_tiles_hit, dev);
 
-        println!("Returning output tensors");
+        //println!("Returning output tensors");
         Ok((
             dst_cov3d,
             Shape::from_dims(&[num_points, 6]),
@@ -334,7 +334,7 @@ impl CustomOp2 for ProjectGaussians {
         let viewmat = _arg2.narrow(1,4,4)?;
         let viewmat = viewmat.contiguous()?;
 
-        println!("on est par ici");
+        //println!("on est par ici");
 
         let dev = get_dev(&means3d)?;
 
@@ -356,7 +356,7 @@ impl CustomOp2 for ProjectGaussians {
 
         let (storage, layout) = quats.storage_and_layout();
 
-        println!("par exemple, le layout de quats est {:#?}", layout);
+        //println!("par exemple, le layout de quats est {:#?}", layout);
 
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
         let slice_quats = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
@@ -432,12 +432,16 @@ impl CustomOp2 for ProjectGaussians {
             (&dst_v_quats).as_kernel_param(),
         ];
 
+
+        println!("Launching project backward kernel");
         let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD)?;
 
         let n_threads = 256; //TODO : voir si on peut le mettre en argument
         let n_blocks = (num_points + n_threads - 1) / n_threads;
         let n_threads = n_threads as u32;
         let n_blocks = n_blocks as u32;
+        println!("n_threads : {:#?}", n_threads);
+        println!("n_blocks : {:#?}", n_blocks);
         let cfg = LaunchConfig {
             grid_dim: (n_blocks, 1, 1),
             block_dim: (n_threads, 1, 1),
@@ -504,7 +508,7 @@ impl RasterizeGaussians {
         Shape,
         candle_core::CudaStorage,
         Shape)>{
-        println!("Start fwd");
+        //println!("Start fwd");
         let dev = gaussian_ids_sorted_storage.device().clone();
         let gaussian_ids_sorted_slice = get_cuda_slice_i64(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
         let tile_bins_slice = get_cuda_slice_i64(&tile_bins_storage, tile_bins_layout.clone())?;
@@ -517,7 +521,7 @@ impl RasterizeGaussians {
         let background_storage = super::customop::to_cuda_storage(&background_storage, &background_layout)?;
         let background_slice = get_cuda_slice_f32(&background_storage, background_layout.clone())?;
         
-        println!("get func");
+        //println!("get func");
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_forward", FORWARD)?
         } else {
@@ -576,10 +580,10 @@ impl RasterizeGaussians {
             shared_mem_bytes: 0,
         };
 
-        println!("Launching kernel");
+        println!("Launching rasterize forward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
-        println!("Wrapping output tensors");
+        //println!("Wrapping output tensors");
         let dst_final_Ts = candle_core::CudaStorage::wrap_cuda_slice(dst_final_Ts, dev.clone());
         let dst_final_index = candle_core::CudaStorage::wrap_cuda_slice(dst_final_index, dev.clone());
         let dst_out_img = candle_core::CudaStorage::wrap_cuda_slice(dst_out_img, dev);
@@ -680,6 +684,7 @@ impl CustomOp3 for RasterizeGaussians {
         let dst_v_conic = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_v_colors = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_v_opacity = unsafe { dev.alloc::<f32>(num_points * 1) }.w()?;
+        let dst_v_out_alpha = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_backward_kernel", BACKWARD)?
@@ -703,6 +708,7 @@ impl CustomOp3 for RasterizeGaussians {
             (&slice_final_Ts).as_kernel_param(),
             (&slice_final_index).as_kernel_param(),
             (&slice_v_out_img).as_kernel_param(),
+            (&dst_v_out_alpha).as_kernel_param(),
             (&dst_v_xy).as_kernel_param(),
             (&dst_v_conic).as_kernel_param(),
             (&dst_v_colors).as_kernel_param(),
@@ -726,6 +732,7 @@ impl CustomOp3 for RasterizeGaussians {
                 (&slice_final_Ts).as_kernel_param(),
                 (&slice_final_index).as_kernel_param(),
                 (&slice_v_out_img).as_kernel_param(),
+                (&dst_v_out_alpha).as_kernel_param(),
                 (&dst_v_xy).as_kernel_param(),
                 (&dst_v_conic).as_kernel_param(),
                 (&dst_v_colors).as_kernel_param(),
@@ -738,7 +745,7 @@ impl CustomOp3 for RasterizeGaussians {
             shared_mem_bytes: 0,
         };
 
-        println!("Launching kernel");
+        println!("Launching rasterize backward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
         let v_xy = to_tensor(
@@ -850,8 +857,8 @@ mod test {
 
         let func = dev.get_or_load_func("project_gaussians_forward_kernel", FORWARD)?;
         let cfg = LaunchConfig {
-            grid_dim: (0, 0, 0),
-            block_dim: (0, 0, 0),
+            grid_dim: (1, 1, 1),
+            block_dim: (1, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe { func.launch(cfg, params) };
@@ -926,8 +933,8 @@ mod test {
 
         let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD).unwrap();
         let cfg = LaunchConfig {
-            grid_dim: (0, 0, 0),
-            block_dim: (0, 0, 0),
+            grid_dim: (1, 0, 0),
+            block_dim: (1, 0, 0),
             shared_mem_bytes: 0,
         };
         unsafe { func.launch(cfg, params) }.w()?;

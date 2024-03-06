@@ -139,9 +139,11 @@ impl Trainer {
         ).unwrap(); // Utilisation de AdamW au lieu de Adam (trouve pas Adam alors qu'il existe dans optimizer.rs .unwrap())
         let mse_loss = candle_nn::loss::mse;
 
-        let mut frames = Vec::new();
+        //let mut frames = Vec::new();
 
         for iter in 0..iterations{
+            println!("On va project iter : {}",iter);
+            
             let (cov3d,xys,depths,radii,conics,compensation,num_tiles_hit) = customop::ProjectGaussians(
                 &self.means,                
                 &self.scales,
@@ -158,7 +160,10 @@ impl Trainer {
                 self.tile_bounds,
                 None // none pour le threshold car sélection de la valeur par défaut 
             ).unwrap();
-            //cuda.synchronize ... Pas trouver comment faire
+            
+            
+
+            println!("On va rasterize iter : {}",iter);
             let (out_img, out_alpha) = customop::RasterizeGaussians(
                 &xys,
                 &depths,
@@ -174,24 +179,32 @@ impl Trainer {
                 None,
             ).unwrap();
 
+            
+            
+
             println!("on est sorti de rasterize");
-            println!("gt_image shape {:?}",self.gt_image.shape());
-            //cuda.synchronize ... Pas trouver comment faire
+            //println!("gt_image shape {:?}",self.gt_image.shape());
+            //println!("out_img shape {:?}",out_img.shape());
+            //println!("out image {}",out_img);
+
             let loss = mse_loss(&out_img,&self.gt_image).unwrap();
 
             //adam_optimize.zero_grad().unwrap();
             
             adam_optimize.backward_step(&loss).unwrap();
-            println!("Iteraion {}/{}, Loss {}",iter+1,iterations,loss);
-            if save_imgs && iter%5==0{
+            println!("Iteration {}/{}, Loss {}",iter+1,iterations,loss);
+            /* if save_imgs && iter%1==0{
                 let out_img = (out_img * 255.).unwrap().to_dtype(DType::U8).unwrap();
                 frames.push(out_img.clone());
                 let mut img_path_buff = self.img_path_res.to_path_buf();
-                img_path_buff.set_extension(format!("_{}.jpg",iter));
+                // Modification ici: changer set_extension pour utiliser set_file_name avec le format correct
+                let new_filename = format!("{}_{}.jpg", img_path_buff.file_stem().unwrap().to_str().unwrap(), iter);
+                img_path_buff.set_file_name(new_filename);
                 let image_path = img_path_buff.as_path(); 
-                save_image(&out_img,image_path);
+                println!("Saving image to {:?}", image_path);
+                save_image(&out_img, image_path);
 
-            }
+            } */
         }
 
     }
@@ -236,6 +249,7 @@ pub fn save_image<P: AsRef<std::path::Path>>(img: &Tensor, p: P) -> Result<()> {
             None => candle::bail!("error saving image {p:?}"),
         };
     image.save(p).map_err(candle::Error::wrap)?;
+    println!("Image saved to {:?}", p);
     Ok(())
 } 
 

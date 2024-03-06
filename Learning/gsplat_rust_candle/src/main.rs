@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gsplat_rust_candle::trainer;
 
 #[derive(Parser, Debug)]
-#[command(version = "1.0", about = "Process image parameters", long_about = None)]
+#[command(version = "1.0", about = "gsplat parameters", long_about = None)]
 struct Args {
     /// Height of the image
     #[arg(long, default_value_t = 256)]

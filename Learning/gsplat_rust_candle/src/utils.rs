@@ -232,7 +232,7 @@ pub fn get_tile_bin_edges(
     };
     unsafe { func.launch(cfg, params) }.w().unwrap();
     let tile_bins_storage = candle::CudaStorage::wrap_cuda_slice(dst_tile_bins,dev);
-    let tile_bins = from_storage(candle_core::Storage::Cuda(tile_bins_storage),Shape::from_dims(&[(tile_x*tile_y) as usize,2]), BackpropOp::none(),false);
+    let tile_bins = from_storage(candle_core::Storage::Cuda(tile_bins_storage),Shape::from_dims(&[(tile_x*tile_y) as usize,2]), BackpropOp::none(),false).contiguous()?;
     
 
     Ok(tile_bins)
