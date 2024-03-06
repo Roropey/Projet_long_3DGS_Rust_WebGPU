@@ -1,8 +1,9 @@
 // Implementation basé sur le simple_trainer.py d'exmpales de gsplat
 use candle_core as candle;
-use candle::{Tensor, Var, Device};
+use candle::{Tensor, Var, Device, DType, Result};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW,  ops::sigmoid};
 use num;
+use std::path::Path;
 //use tch::nn::Adam;
 
 //use crate::project_gaussians;
@@ -12,7 +13,7 @@ use super::cuda::customop;
 pub struct Trainer{
     device: Device,
     gt_image: Tensor,
-    img_path_res: Path,
+    img_path_res: Box<Path>,
     num_points: u32,
     h: u32,
     w: u32,
@@ -32,7 +33,7 @@ pub struct Trainer{
 
 impl Trainer {
     pub fn __init__(
-        img_path: Path,
+        img_path: &Path,
         gt_image: Tensor,
         num_points: Option<u32> // When use, put Some(...), if default value, put None
     )-> Self{
@@ -57,7 +58,7 @@ impl Trainer {
         let (means,scales,quats,rgbs,opacities,viewmat,background) = Trainer::_init_gaussians(num_points.try_into().unwrap(),device.clone());
         Trainer {device: device,
              gt_image: gt_image,
-             img_path_res: img_path,
+             img_path_res: img_path.into(),
              num_points: num_points,
              h: h,
              w: w,
@@ -138,7 +139,7 @@ impl Trainer {
         ).unwrap(); // Utilisation de AdamW au lieu de Adam (trouve pas Adam alors qu'il existe dans optimizer.rs .unwrap())
         let mse_loss = candle_nn::loss::mse;
 
-        //let mut frames = Vec::new();
+        let mut frames = Vec::new();
 
         for iter in 0..iterations{
             let (cov3d,xys,depths,radii,conics,compensation,num_tiles_hit) = customop::ProjectGaussians(
@@ -183,10 +184,12 @@ impl Trainer {
             adam_optimize.backward_step(&loss).unwrap();
             println!("Iteraion {}/{}, Loss {}",iter+1,iterations,loss);
             if save_imgs && iter%5==0{
-                let out_img = (out_img * 255)?.to_dtype(DType::U8);
-                frames.push(out_img);
-                let image_path = self.img_path_res.set_extension(format!("_{}.jpg",iter)); 
-                save_image(out_img,image_path);
+                let out_img = (out_img * 255.).unwrap().to_dtype(DType::U8).unwrap();
+                frames.push(out_img.clone());
+                let mut img_path_buff = self.img_path_res.to_path_buf();
+                img_path_buff.set_extension(format!("_{}.jpg",iter));
+                let image_path = img_path_buff.as_path(); 
+                save_image(&out_img,image_path);
 
             }
         }
@@ -219,7 +222,7 @@ impl Trainer {
 
 /// Saves an image to disk using the image crate, this expects an input with shape
 /// (c, height, width).
-/* pub fn save_image<P: AsRef<std::path::Path>>(img: &Tensor, p: P) -> Result<()> {
+pub fn save_image<P: AsRef<std::path::Path>>(img: &Tensor, p: P) -> Result<()> {
     let p = p.as_ref();
     let (channel, height, width) = img.dims3()?;
     if channel != 3 {
@@ -234,7 +237,7 @@ impl Trainer {
         };
     image.save(p).map_err(candle::Error::wrap)?;
     Ok(())
-} */
+} 
 
 // fn image_path_to_tensor(image_path:&std::path::Path,width:usize,height:usize)-> Tensor{
 //     let original_image = image::io::Reader::open(&image_path).unwrap()
@@ -265,8 +268,8 @@ fn image_path_to_tensor(image_path:&std::path::Path,width:u32,height:u32)-> Tens
                 )
                 .to_rgb8()
                 .into_raw();
-            let image = Tensor::from_vec(data, (width, height, 3), &Device::Cpu).unwrap().permute((1, 2, 0)).unwrap();
-            (image.unsqueeze(0)?.to_dtype(DType::F32)? * (1. / 255.)).unwrap();
+            let image = Tensor::from_vec(data, (width as usize, height as usize, 3 as usize), &Device::Cpu).unwrap().permute((1, 2, 0)).unwrap();
+            (image.unsqueeze(0).unwrap().to_dtype(DType::F32).unwrap() * (1. / 255.)).unwrap()
 }
 
 
@@ -285,51 +288,52 @@ pub fn custom_main(height:Option<u32>,
     let iterations = iterations.unwrap_or(1000);
     let save_imgs = save_imgs.unwrap_or(true);
     let lr = lr.unwrap_or(0.01);
-    if Some(img_path){
-        let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
-        let img_path = img_path.unwrap();
-    } else {
-        // Création d'un vecteur 3 dimension 
-        // Théoriquement : 
-        // Rouge Vert
-        // Noir Bleu
-        let mut tot = Vec::new();
-        // Couche rouge
-        for i in 0..height{
-            for j in 0..width{
-                if j < 256/2 && i < 256/2{
-                    tot.push(1.0);
-                } else {
-                    tot.push(0.0);
-                }
-            }
-        }
-        // Couche vert
-        let vert = Vec::new();
-        for i in 0..height{
-            for j in 0..width{
-                if j > 256/2 && i < 256/2{
-                    tot.push(1.0);
-                } else {
-                    tot.push(0.0);
-                }
-            }
-        }
-        // Couche bleu
-        for i in 1..height{
-            let ligne = Vec::new();
-            for j in 0..width{
-                if j > 256/2 && i > 256/2{
-                    tot.push(1.0);
-                } else {
-                    tot.push(0.0);
-                }
-            }
-        }
+    //if Some(img_path){
+    let gt_image = image_path_to_tensor(img_path, width, height);
+    //let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
+        //let img_path = img_path.unwrap();
+    // } else {
+    //     // Création d'un vecteur 3 dimension 
+    //     // Théoriquement : 
+    //     // Rouge Vert
+    //     // Noir Bleu
+    //     let mut tot = Vec::new();
+    //     // Couche rouge
+    //     for i in 0..height{
+    //         for j in 0..width{
+    //             if j < 256/2 && i < 256/2{
+    //                 tot.push(1.0);
+    //             } else {
+    //                 tot.push(0.0);
+    //             }
+    //         }
+    //     }
+    //     // Couche vert
+    //     let vert = Vec::new();
+    //     for i in 0..height{
+    //         for j in 0..width{
+    //             if j > 256/2 && i < 256/2{
+    //                 tot.push(1.0);
+    //             } else {
+    //                 tot.push(0.0);
+    //             }
+    //         }
+    //     }
+    //     // Couche bleu
+    //     for i in 1..height{
+    //         let ligne = Vec::new();
+    //         for j in 0..width{
+    //             if j > 256/2 && i > 256/2{
+    //                 tot.push(1.0);
+    //             } else {
+    //                 tot.push(0.0);
+    //             }
+    //         }
+    //     }
 
-        let gt_image = Tensor::from_vec(tot,(height,width,3),&Device::Cpu).unwrap();
-        let img_path = "./";
-    }
+    //     let gt_image = Tensor::from_vec(tot,(height,width,3 as u32),&Device::Cpu).unwrap();
+    //     let img_path = "./";
+    // }
     let mut trainer = Trainer::__init__(img_path, gt_image, Some(num_points));
     trainer.train(Some(iterations), Some(lr), Some(save_imgs));
     
