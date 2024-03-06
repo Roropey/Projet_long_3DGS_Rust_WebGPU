@@ -1,10 +1,11 @@
 use candle_core::backend::BackendDevice;
+use candle_core::cuda_backend::cudarc::driver::result::event::elapsed;
+use candle_core::{CustomOp2, CustomOp3};
 use candle_core::backend::BackendStorage;
 use candle_core::cuda_backend::{CudaDevice, WrapErr};
 use candle_core::op::BackpropOp;
 use candle_core::op::Op;
 use candle_core::tensor::from_storage;
-use candle_core::CustomOp1;
 use candle_core::Device;
 use candle_core::Result;
 use candle_core::Shape;
@@ -12,6 +13,7 @@ use candle_core::Storage;
 use candle_core::Tensor;
 use candle_core::TensorId;
 use std::sync::{Arc, RwLock};
+#[path = "../utils.rs"] mod utils;
 
 pub(crate) fn to_cuda_storage(
     storage: &Storage,
@@ -109,7 +111,15 @@ pub fn ProjectGaussians(
         }
     }
     let tensor_in = Tensor::cat(&a, 1)?;
-
+    let tensor_in = tensor_in.contiguous()?;
+    let (_,layout) = tensor_in.storage_and_layout();
+    println!("layout de tensor_in : {:#?}", layout);
+    println!("should track op : {}", tensor_in.track_op());
+    let projview = Tensor::cat(&[projmat, viewmat], 1)?;
+    let projview = projview.contiguous()?;
+    let (_,projview_layout) = projview.storage_and_layout();
+    println!("should track op : {}", projview.track_op());
+    println!("layout de projview : {:#?}", projview_layout);
     let c = super::bindings::ProjectGaussians {
         glob_scale,
         fx,
@@ -238,16 +248,27 @@ pub fn ProjectGaussians(
 
     println!("layout de tensortot: {:#?}", layout);
 
-    let structc = Arc::new(Box::new(c) as Box<dyn CustomOp1 + Send + Sync>);
+    let structc = Arc::new(Box::new(c) as Box<dyn CustomOp2 + Send + Sync>);
 
-    let op = BackpropOp::new1(&tensor_in, |s| Op::CustomOp1(s, structc.clone()));
+    let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); 
+    
     let tensor_out = from_storage(storage, shape, op, false);
+    println!("should track op : {}", tensor_out.track_op());
+    match tensor_out.op() {
+        Some(op) => println!("some op fw"),
+        None => println!("no op fw")
+    }
+
+    println!("tensor_out id : {:?}", tensor_out.id());
 
     let (_, tensor_out_layout) = tensor_out.storage_and_layout();
     println!("layout de tensor_out : {:#?}", tensor_out_layout);
 
     println!("tensor_out apres from_storage : {}", tensor_out);
 
+    println!("tensour_out is variable : {}", tensor_out.is_variable());
+    println!("tensor_in is variable : {}", tensor_in.is_variable());
+    
     //la backpropagation va marcher puisque narrow qui va associer l'opération Backprop narrow aux tenseurs de sorte à ce que les gradients des tenseurs
     //de sortie reforme un tenseur unique de ces gradient, qui pourra etre rentré dans le backward de ProjectGaussian (le struct) qu'on re splitera pour donner au kernel cuda
     //et les gradients de seront remis dans 1 gradient dans bckward de ProjectGaussian(le struct) qui sera ensuite re-split dans les bons tenseur par la backpropagation grace à l'opération Cat
@@ -258,6 +279,8 @@ pub fn ProjectGaussians(
     let cov3d = tensor_out.narrow(1, 0, 6)?;
 
     println!("cov3d apres narrow: {}", cov3d);
+
+    
 
     let xys = tensor_out.narrow(1, 6, 2)?;
     let depth = tensor_out.narrow(1, 8, 1)?;
@@ -275,6 +298,215 @@ pub fn ProjectGaussians(
         compensation,
         num_tiles_hit,
     ))
+}
+
+
+pub fn RasterizeGaussians(
+    xys: &Tensor,
+    depths: &Tensor,
+    radii: &Tensor,
+    conics: &Tensor,
+    num_tiles_hit: &Tensor,
+    colors: &Tensor,
+    opacity: &Tensor,
+    img_height: u32,
+    img_width: u32,
+    block_width: u32,
+    background: Option<Tensor>, // When use, put Some(...) and not use, put None
+    return_alpha: Option<bool> // When use, put Some(...), if not, put None
+) -> candle_core::Result<(Tensor,Option<Tensor>)> {
+
+    let background = background.unwrap_or(Tensor::ones(colors.dim(candle_core::D::Minus1)?, candle_core::DType::F32, colors.device()).unwrap());
+    let return_alpha = return_alpha.unwrap_or(false);
+    assert!(background.shape().dims()[0] == colors.shape().dims()[colors.shape().rank()-1], "Incorrect shape of background color tensor, expected shape {}",colors.shape().dims()[colors.shape().rank()-1]);
+    assert!(xys.shape().rank()==2 && xys.shape().dims()[1] == 2, "xys, must have dimensions (N,2)");
+    assert!(colors.shape().rank() == 2, "colors must have dimensions (N,D)");
+    let num_points = xys.dim(0)?;
+    let tile_bounds = (
+        num::integer::div_floor(img_width as isize + block_width as isize - 1, block_width as isize) as u32,
+        num::integer::div_floor(img_height as isize + block_width as isize - 1, block_width as isize) as u32,
+        1 as u32
+    );
+    let _block = (block_width,block_width,1);
+    let img_size = (img_width,img_height,1);
+    let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
+    let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,final_Ts,_final_idx) = if num_intersects < 1 {
+        ((Tensor::ones((img_height as usize,img_width as usize,colors.dim(candle_core::D::Minus1)?),candle_core::DType::F32, xys.device())? * background)?,
+        Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?,
+        Tensor::zeros((0,1), candle_core::DType::U32, xys.device())?,
+        Tensor::zeros((0,2),candle_core::DType::F32,xys.device())?,
+        Tensor::zeros((img_height as usize,img_width as usize), candle_core::DType::F32, xys.device())?,
+        Tensor::zeros((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
+    } else {
+        let (
+            _isect_ids_unsorted,
+            _gaussians_ids_unsorted,
+            _isect_ids_sorted,
+            gaussians_ids_sorted,
+            tile_bins,
+        ) = utils::bin_and_sort_gaussians(
+            num_points,
+            num_intersects,
+            xys,
+            depths,
+            radii,
+            &cum_tiles_hit,
+            (tile_bounds.0 as usize, tile_bounds.1 as usize, tile_bounds.2 as usize),
+            block_width as usize,
+        )?;
+
+        let not_nd = colors.dim(candle_core::D::Minus1)? == 3;
+        let channels = colors.dim(1)? as u32; // Baser sur bindings.cu, rasterize_forward_tensor
+        
+        let num_intersects = num_intersects as u32;
+        let mut max = 0;
+        let a = [xys, conics, colors,opacity];
+        for arg in a.iter() {
+            if arg.rank() > max {
+                max = arg.rank();
+            }
+        }
+        for arg in a.iter() {
+            for _i in 0..((max as i64) - (arg.rank() as i64)) {
+                arg.unsqueeze(0)?;
+            }
+        }
+        let tensor_gauss = Tensor::cat(&a, 1)?;
+        let tensor_gauss = tensor_gauss.contiguous()?;
+        let (_,layout) = tensor_gauss.storage_and_layout();
+        println!("layout de tensor_in : {:#?}", layout);
+        println!("should track op : {}", tensor_gauss.track_op());
+
+        let c = super::bindings::RasterizeGaussians{
+            not_nd,
+            tile_bounds,
+            img_size,
+            channels,
+            num_intersects,
+            block_width,
+            background
+        };
+        
+        let (gaussian_ids_sorted_storage, gaussian_ids_sorted_layout) = gaussians_ids_sorted.storage_and_layout();
+        let (tile_bins_storage, tile_bins_layout) = tile_bins.storage_and_layout();
+        let (xys_storage, xys_layout) = xys.storage_and_layout();
+        let (conics_storage, conics_layout) = conics.storage_and_layout();
+        let (colors_storage, colors_layout) = colors.storage_and_layout();
+        let (opacity_storage, opacity_layout) = opacity.storage_and_layout();
+
+        let gaussian_ids_sorted_storage = to_cuda_storage(&gaussian_ids_sorted_storage, &gaussian_ids_sorted_layout)?;
+        let tile_bins_storage = to_cuda_storage(&tile_bins_storage, &tile_bins_layout)?;
+        let xys_storage = to_cuda_storage(&xys_storage, &xys_layout)?;
+        let conics_storage = to_cuda_storage(&conics_storage, &conics_layout)?;
+        let colors_storage = to_cuda_storage(&colors_storage, &colors_layout)?;
+        let opacity_storage = to_cuda_storage(&opacity_storage, &opacity_layout)?;
+        
+
+        let (
+            storage_final_Ts,
+            shape_final_Ts,
+            storage_final_index,
+            shape_final_index,
+            storage_out_img,
+            shape_out_img
+        ) = c.fwd(
+            gaussian_ids_sorted_storage,
+            gaussian_ids_sorted_layout,
+            tile_bins_storage,
+            tile_bins_layout,
+            xys_storage,
+            xys_layout,
+            conics_storage,
+            conics_layout,
+            colors_storage,
+            colors_layout,
+            opacity_storage,
+            opacity_layout
+        )?;
+        let tensor_final_Ts = from_storage(
+            candle_core::Storage::Cuda(storage_final_Ts),
+            shape_final_Ts,
+            BackpropOp::none(),
+            false,
+        );
+        let tensor_out_img = from_storage(
+            candle_core::Storage::Cuda(storage_out_img),
+            shape_out_img,
+            BackpropOp::none(),
+            false,
+        );
+        let tensor_final_index = from_storage(
+            candle_core::Storage::Cuda(storage_final_index),
+            shape_final_index,
+            BackpropOp::none(),
+            false,
+        );
+        let out_alpha = if return_alpha {
+            tensor_final_Ts.affine(-1.0,1.0).unwrap()
+        } else {
+            Tensor::zeros(tensor_final_Ts.shape(),candle_core::DType::F32,tensor_final_Ts.device())?
+        };
+        let tensortot = Tensor::cat(
+            &[
+                tensor_out_img,
+                tensor_final_Ts.unsqueeze(2)?,
+                tensor_final_index.unsqueeze(2)?,
+                out_alpha.unsqueeze(2)?,
+            ],
+            2,
+        )?;          
+
+        println!("tensortot apres cat : {}", tensortot);
+
+        //réécriture de from_storage et copy
+        let shape = tensortot.shape();
+
+        println!("shape : {:#?}", shape);
+
+        let tensortot = tensortot.contiguous()?;
+
+        let (storage, layout) = tensortot.storage_and_layout();
+        let storage = storage.try_clone(layout)?;
+
+        println!("layout de tensortot: {:#?}", layout);
+
+        let structc = Arc::new(Box::new(c) as Box<dyn CustomOp3 + Send + Sync>);
+
+        let op = BackpropOp::new3(&tensor_gauss,&gaussians_ids_sorted, &tile_bins, |t1,t2, t3| Op::CustomOp3(t1,t2,t3, structc.clone())); 
+        
+        let tensor_out = from_storage(storage, shape, op, false);
+        println!("should track op : {}", tensor_out.track_op());
+        // match tensor_out.op() {
+        //     Some(op) => println!("some op fw"),
+        //     None => println!("no op fw")
+        // }
+
+        println!("tensor_out id : {:?}", tensor_out.id());
+
+        let (_, tensor_out_layout) = tensor_out.storage_and_layout();
+        println!("layout de tensor_out : {:#?}", tensor_out_layout);
+
+        println!("tensor_out apres from_storage : {}", tensor_out);
+
+        println!("tensour_out is variable : {}", tensor_out.is_variable());
+        println!("tensor_gauss is variable : {}", tensor_gauss.is_variable());
+        
+        let out_img = tensor_out.narrow(2, 0, channels as usize)?;
+
+        println!("out_img apres narrow: {}", out_img);        
+
+        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?;
+        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?;
+        let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?;
+
+        (out_img,out_alpha,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
+    };
+    if return_alpha {
+        Ok((out_img,Some(out_alpha)))
+    } else {
+        Ok((out_img,None))
+    }
+
 }
 
 #[cfg(test)]
@@ -360,7 +592,6 @@ mod tests {
      */
 
     #[test]
-
     fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let device = Device::new_cuda(0)?;
         let _num_points = 2;
@@ -431,7 +662,7 @@ mod tests {
                 [0.0049, -0.0000, 0.0049]], device='cuda:0')
         compensation:  tensor([0.9985, 0.9985], device='cuda:0')
         num_tiles_hit:  tensor([36, 36], device='cuda:0', dtype=torch.int32) */
-        let _python_cov3d = candle_core::Tensor::from_slice(
+        /* let _python_cov3d = candle_core::Tensor::from_slice(
             &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
             &candle_core::Shape::from_dims(&[2, 6]),
             &device,
@@ -465,7 +696,7 @@ mod tests {
             &[36 as u32, 36 as u32],
             &candle_core::Shape::from_dims(&[2]),
             &device,
-        )?;
+        )?; */
         println!("cov3d : {}", cov3d);
         println!("xys : {}", xys);
         println!("depths : {}", depths);
@@ -483,6 +714,78 @@ mod tests {
         //check_close(&num_tiles_hit, &python_num_tiles_hit, 1e-5, 1e-5);
         Ok(())
     }
+
+    #[test]
+    fn test_rasterize_gaussian_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let device = Device::new_cuda(0)?;
+        let xys_slice: &[f32] = &[255.5000, 255.5000, 255.5000, 255.5000];
+        let xys = candle_core::Tensor::from_slice(
+            xys_slice,
+            &candle_core::Shape::from_dims(&[2, 2]),
+            &device,
+        )?;
+        let depths_slice: &[f32] = &[18.0, 18.0];
+        let depths = candle_core::Tensor::from_slice(
+            depths_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let radii_slice: &[f32] = &[43.0, 43.0];
+        let radii = candle_core::Tensor::from_slice(
+            radii_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let conics_slice: &[f32] = &[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049];
+        let conics = candle_core::Tensor::from_slice(
+            conics_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let num_tiles_hit_slice: &[u32] = &[36, 36];
+        let num_tiles_hit = candle_core::Tensor::from_slice(
+            num_tiles_hit_slice,
+            &candle_core::Shape::from_dims(&[2]),
+            &device,
+        )?;
+        let colors_slice: &[f32] = &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0];
+        let colors = candle_core::Tensor::from_slice(
+            colors_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let opacity_slice: &[f32] = &[1.0, 1.0];
+        let opacity = candle_core::Tensor::from_slice(
+            opacity_slice,
+            &candle_core::Shape::from_dims(&[2,1]),
+            &device,
+        )?;
+        let H = 512;
+        let W = 512;
+        let block_width = 16;
+        let background = None;
+        let return_alpha = None;
+
+        let (out_img, out_alpha) = RasterizeGaussians(
+            &xys,
+            &depths,
+            &radii,
+            &conics,
+            &num_tiles_hit,
+            &colors,
+            &opacity,
+            H,
+            W,
+            block_width,
+            background,
+            return_alpha,
+        )?;
+
+        println!("out_img : {}", out_img);
+        println!("out_alpha : {:?}", out_alpha);
+        Ok(())
+    }
+    
 
     /* #[test]
     #[ignore]
@@ -548,4 +851,104 @@ mod tests {
         let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = c.dummy_fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
         Ok(())
     } */
+    #[test]
+    
+    fn test_dummy_bwd() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let device = Device::new_cuda(0)?;
+        let _num_points = 2;
+        let means3d_slice: &[f32] = &[0.0, 0.0, 10.0, 0.0, 0.0, 10.0];
+        let means3d = candle_core::Tensor::from_slice(
+            means3d_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let scales_slice: &[f32] = &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let scales = candle_core::Tensor::from_slice(
+            scales_slice,
+            &candle_core::Shape::from_dims(&[2, 3]),
+            &device,
+        )?;
+        let glob_scale = 1.0;
+        let quats_slice: &[f32] = &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let quats = candle_core::Tensor::from_slice(
+            quats_slice,
+            &candle_core::Shape::from_dims(&[2, 4]),
+            &device,
+        )?;
+        //let quats = quats / quats.norm(candle_core::Norm::L2, &[1], true);
+        let H = 512;
+        let W = 512;
+        let cx = W as f32 / 2.0;
+        let cy = H as f32 / 2.0;
+        let fx = W as f32 / 2.0;
+        let fy = W as f32 / 2.0;
+        let clip_thresh = 0.01;
+        let viewmat_slice: &[f32] = &[
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        let viewmat = candle_core::Tensor::from_slice(
+            viewmat_slice,
+            &candle_core::Shape::from_dims(&[4, 4]),
+            &device,
+        )?;
+        let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0, &device);
+        let _fullmat = projmat.matmul(&viewmat);
+        let BLOCK_X = 16;
+        let BLOCK_Y = 16;
+        let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(
+            &means3d,
+            &scales,
+            glob_scale,
+            &quats,
+            &viewmat,
+            &projmat,
+            fx,
+            fy,
+            cx,
+            cy,
+            H as u32,
+            W as u32,
+            tile_bounds,
+            Some(clip_thresh),
+        )?;
+
+        println!("IIIIIIICIIIIIII");
+        println!("cov3d : {}", cov3d);
+        if let Some(op) = cov3d.op() {
+            println!("some op");
+            match op {
+                Op::Narrow(t,_,_,_) => {
+                    println!("narrow");
+                    let grad = Tensor::rand(0.0 as f32,1.0 as f32,t.shape(),t.device())?;
+                    let (_,layout) = t.storage_and_layout();
+                    println!("layout de tensor_in dans backward: {:#?}", layout);
+                    println!("tensor id : {:?}", t.id());
+                    if let Some(op2) = t.op(){
+                        
+                        println!("some op2");
+                        match op2 {
+                            Op::CustomOp2(arg1,arg2,c) => {
+                                println!("customop2");
+                                let structc = c.bwd(&arg1,&arg2,t,&grad)?;
+                                if let (Some(grad),_) = structc {
+                                    println!("grad : {}", grad);
+                                }
+                                else{
+                                    println!("no grad");
+                                }
+                            }
+                            _ => panic!("Op2 n'est pas un CustomOp2")
+                        }
+                    }
+                }
+                _ => panic!("Op n'est pas un Narrow")
+            }
+        }
+        else{
+            println!("no op");
+        }
+
+        Ok(())
+    }
 }

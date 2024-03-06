@@ -111,7 +111,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
-__global__ void map_gaussian_to_intersects(
+extern "C" __global__ void map_gaussian_to_intersects(
     const int num_points,
     const float2* __restrict__ xys,
     const float* __restrict__ depths,
@@ -156,7 +156,7 @@ __global__ void map_gaussian_to_intersects(
 // kernel to map sorted intersection IDs to tile bins
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
-__global__ void get_tile_bin_edges(
+extern "C" __global__ void get_tile_bin_edges(
     const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, int2* __restrict__ tile_bins
 ) {
     unsigned idx = cg::this_grid().thread_rank();
@@ -183,7 +183,7 @@ __global__ void get_tile_bin_edges(
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
-__global__ void nd_rasterize_forward(
+extern "C" __global__ void nd_rasterize_forward(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -198,7 +198,7 @@ __global__ void nd_rasterize_forward(
     const float* __restrict__ colors,
     const float* __restrict__ opacities,
     float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
+    float* __restrict__ final_index,
     float* __restrict__ out_img,
     const float* __restrict__ background
 ) {
@@ -272,7 +272,7 @@ __global__ void nd_rasterize_forward(
     }
 }
 
-__global__ void rasterize_forward(
+extern "C" __global__ void rasterize_forward(
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
@@ -286,7 +286,7 @@ __global__ void rasterize_forward(
     const float3* __restrict__ colors,
     const float* __restrict__ opacities,
     float* __restrict__ final_Ts,
-    int* __restrict__ final_index,
+    float* __restrict__ final_index,
     float3* __restrict__ out_img,
     const float3& __restrict__ background
 ) {
