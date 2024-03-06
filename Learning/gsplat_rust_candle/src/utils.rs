@@ -114,11 +114,10 @@ pub fn map_gaussian_to_intersects(
         - **gaussian_ids** (candle::Tensor): Tensor that maps isect_ids back to cum_tiles_hit.
     */
 
-
     let (xys_storage,xys_layout) = xys.storage_and_layout();
-    let xys_storage: candle::CudaStorage = to_cuda_storage(&xys_storage, &xys_layout).unwrap();
+    let xys_storage: candle::CudaStorage = to_cuda_storage(&xys_storage, &xys_layout).unwrap();    
     let (depths_storage,depths_layout) = depths.storage_and_layout();
-    let depths_storage: candle::CudaStorage = to_cuda_storage(&depths_storage, &depths_layout).unwrap();
+    let depths_storage: candle::CudaStorage = to_cuda_storage(&depths_storage, &depths_layout).unwrap();  
     let (radii_storage,radii_layout) = radii.storage_and_layout();
     let radii_storage: candle::CudaStorage = to_cuda_storage(&radii_storage, &radii_layout).unwrap();
     let (cum_tiles_hit_storage,cum_tiles_hit_layout) = cum_tiles_hit.storage_and_layout();

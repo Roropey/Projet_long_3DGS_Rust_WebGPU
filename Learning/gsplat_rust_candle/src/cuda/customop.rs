@@ -282,11 +282,11 @@ pub fn ProjectGaussians(
 
     
 
-    let xys = tensor_out.narrow(1, 6, 2)?;
-    let depth = tensor_out.narrow(1, 8, 1)?;
-    let radii = tensor_out.narrow(1, 9, 1)?;
-    let conics = tensor_out.narrow(1, 10, 3)?;
-    let compensation = tensor_out.narrow(1, 13, 1)?;
+    let xys = tensor_out.narrow(1, 6, 2)?.contiguous()?;
+    let depth = tensor_out.narrow(1, 8, 1)?.contiguous()?;
+    let radii = tensor_out.narrow(1, 9, 1)?.contiguous()?;
+    let conics = tensor_out.narrow(1, 10, 3)?.contiguous()?;
+    let compensation = tensor_out.narrow(1, 13, 1)?.contiguous()?;
     let num_tiles_hit = tensor_num_tiles_hit;
 
     Ok((
@@ -450,9 +450,9 @@ pub fn RasterizeGaussians(
         let tensortot = Tensor::cat(
             &[
                 tensor_out_img,
-                tensor_final_Ts,
-                tensor_final_index,
-                out_alpha,
+                tensor_final_Ts.unsqueeze(2)?,
+                tensor_final_index.unsqueeze(2)?,
+                out_alpha.unsqueeze(2)?,
             ],
             2,
         )?;          
@@ -492,13 +492,13 @@ pub fn RasterizeGaussians(
         println!("tensour_out is variable : {}", tensor_out.is_variable());
         println!("tensor_gauss is variable : {}", tensor_gauss.is_variable());
         
-        let out_img = tensor_out.narrow(2, 0, channels as usize)?;
+        let out_img = tensor_out.narrow(2, 0, channels as usize)?.contiguous()?;
 
         println!("out_img apres narrow: {}", out_img);        
 
-        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?;
-        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?;
-        let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?;
+        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?.contiguous()?;
+        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?.contiguous()?;
+        let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
 
         (out_img,out_alpha,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
     };

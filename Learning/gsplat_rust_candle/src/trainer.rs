@@ -175,7 +175,7 @@ impl Trainer {
             ).unwrap();
 
             println!("on est sorti de rasterize");
-
+            println!("gt_image shape {:?}",self.gt_image.shape());
             //cuda.synchronize ... Pas trouver comment faire
             let loss = mse_loss(&out_img,&self.gt_image).unwrap();
 
@@ -268,8 +268,8 @@ fn image_path_to_tensor(image_path:&std::path::Path,width:u32,height:u32)-> Tens
                 )
                 .to_rgb8()
                 .into_raw();
-            let image = Tensor::from_vec(data, (width as usize, height as usize, 3 as usize), &Device::Cpu).unwrap().permute((1, 2, 0)).unwrap();
-            (image.unsqueeze(0).unwrap().to_dtype(DType::F32).unwrap() * (1. / 255.)).unwrap()
+            let image = Tensor::from_vec(data, (width as usize, height as usize, 3 as usize), &Device::Cpu).unwrap();
+            (image.to_dtype(DType::F32).unwrap() * (1. / 255.)).unwrap()
 }
 
 
@@ -290,6 +290,7 @@ pub fn custom_main(height:Option<u32>,
     let lr = lr.unwrap_or(0.01);
     //if Some(img_path){
     let gt_image = image_path_to_tensor(img_path, width, height);
+    println!("gt_image shape {:?}",gt_image.shape());
     //let gt_image = (load_image_and_resize(img_path, width, height)?.to_dtype(DType::f32)? * (1./255.))?;
         //let img_path = img_path.unwrap();
     // } else {
