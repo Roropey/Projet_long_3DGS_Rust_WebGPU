@@ -748,7 +748,7 @@ mod tests {
             &candle_core::Shape::from_dims(&[2, 3]),
             &device,
         )?;
-        let num_tiles_hit_slice: &[u32] = &[36, 36];
+        let num_tiles_hit_slice: &[i64] = &[36, 36];
         let num_tiles_hit = candle_core::Tensor::from_slice(
             num_tiles_hit_slice,
             &candle_core::Shape::from_dims(&[2]),
@@ -996,7 +996,7 @@ mod tests {
             &candle_core::Shape::from_dims(&[2, 3]),
             &device,
         )?;
-        let num_tiles_hit_slice: &[u32] = &[36, 36];
+        let num_tiles_hit_slice: &[i64] = &[36, 36];
         let num_tiles_hit = candle_core::Tensor::from_slice(
             num_tiles_hit_slice,
             &candle_core::Shape::from_dims(&[2]),

@@ -150,7 +150,7 @@ pub fn map_gaussian_to_intersects(
         Some((o1, o2)) => slice_radii.slice(o1..o2),
     };
 
-    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<u32>().unwrap();
+    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<i64>().unwrap();
     let slice_cum_tiles_hit = match cum_tiles_hit_layout.contiguous_offsets() {
         None => candle_core::bail!("cum_tiles_hit input has to be contiguous"),
         Some((o1, o2)) => slice_cum_tiles_hit.slice(o1..o2),
@@ -317,13 +317,13 @@ pub fn compute_cumulative_intersects(
     */
     let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F64)?;
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
-    let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::U32)?;
+    let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::I64)?;
     let intermed_recup = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap();
     let mut num_intersects:usize;
     if intermed_recup.rank()==0{
-        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<u32>().unwrap() as usize;
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<i64>().unwrap() as usize;
     } else {
-        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<u32>().unwrap()[0] as usize;
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<i64>().unwrap()[0] as usize;
     }// suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     Ok((num_intersects,cum_tiles_hit))
 }

@@ -33,7 +33,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
     float* __restrict__ radii,
     float3* __restrict__ conics,
     float* __restrict__ compensation,
-    int32_t* __restrict__ num_tiles_hit
+    int64_t* __restrict__ num_tiles_hit
 ) {
     unsigned idx = cg::this_grid().thread_rank(); // idx of thread within grid
     if (idx >= num_points) {
@@ -91,7 +91,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
     float2 center = project_pix(projmat, p_world, img_size, {cx, cy});
     uint2 tile_min, tile_max;
     get_tile_bbox(center, radius, tile_bounds, tile_min, tile_max);
-    int32_t tile_area = (tile_max.x - tile_min.x) * (tile_max.y - tile_min.y);
+    int64_t tile_area = (tile_max.x - tile_min.x) * (tile_max.y - tile_min.y);
     if (tile_area <= 0) {
         // printf("%d point bbox outside of bounds\n", idx);
         return;
@@ -116,12 +116,12 @@ extern "C" __global__ void map_gaussian_to_intersects(
     const float2* __restrict__ xys,
     const float* __restrict__ depths,
     const float* __restrict__ radii,
-    const int32_t* __restrict__ cum_tiles_hit,
+    const int64_t* __restrict__ cum_tiles_hit,
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
     int64_t* __restrict__ isect_ids,
-    int32_t* __restrict__ gaussian_ids
+    int64_t* __restrict__ gaussian_ids
 ) {
     unsigned idx = cg::this_grid().thread_rank();
     if (idx >= num_points)
@@ -138,7 +138,7 @@ extern "C" __global__ void map_gaussian_to_intersects(
     // tile_min.x, tile_min.y, tile_max.x, tile_max.y);
 
     // update the intersection info for all tiles this gaussian hits
-    int32_t cur_idx = (idx == 0) ? 0 : cum_tiles_hit[idx - 1];
+    int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_hit[idx - 1];
     // printf("point %d starting at %d\n", idx, cur_idx);
     int64_t depth_id = (int64_t) * (int32_t *)&(depths[idx]);
     for (int i = tile_min.y; i < tile_max.y; ++i) {
@@ -191,7 +191,7 @@ extern "C" __global__ void nd_rasterize_forward(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const unsigned channels,
-    const int32_t* __restrict__ gaussian_ids_sorted,
+    const int64_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -227,7 +227,7 @@ extern "C" __global__ void nd_rasterize_forward(
     // paper)
     int idx;
     for (idx = range.x; idx < range.y; ++idx) {
-        const int32_t g = gaussian_ids_sorted[idx];
+        const int64_t g = gaussian_ids_sorted[idx];
         const float3 conic = conics[g];
         const float2 center = xys[g];
         const float2 delta = {center.x - px, center.y - py};
@@ -279,7 +279,7 @@ extern "C" __global__ void rasterize_forward(
     const unsigned img_size_x,
     const unsigned img_size_y,
     const unsigned img_size_z,
-    const int32_t* __restrict__ gaussian_ids_sorted,
+    const int64_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -318,7 +318,7 @@ extern "C" __global__ void rasterize_forward(
     int2 range = tile_bins[tile_id];
     int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    __shared__ int32_t id_batch[BLOCK_SIZE];
+    __shared__ int64_t id_batch[BLOCK_SIZE];
     __shared__ float3 xy_opacity_batch[BLOCK_SIZE];
     __shared__ float3 conic_batch[BLOCK_SIZE];
 
@@ -344,7 +344,7 @@ extern "C" __global__ void rasterize_forward(
         int batch_start = range.x + BLOCK_SIZE * b;
         int idx = batch_start + tr;
         if (idx < range.y) {
-            int32_t g_id = gaussian_ids_sorted[idx];
+            int64_t g_id = gaussian_ids_sorted[idx];
             id_batch[tr] = g_id;
             const float2 xy = xys[g_id];
             const float opac = opacities[g_id];
@@ -378,7 +378,7 @@ extern "C" __global__ void rasterize_forward(
                 break;
             }
 
-            int32_t g = id_batch[t];
+            int64_t g = id_batch[t];
             const float vis = alpha * T;
             const float3 c = colors[g];
             pix_out.x = pix_out.x + c.x * vis;

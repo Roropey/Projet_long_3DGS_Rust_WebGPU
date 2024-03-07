@@ -31,7 +31,7 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const unsigned channels,
-    const int32_t* __restrict__ gaussians_ids_sorted,
+    const int64_t* __restrict__ gaussians_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -82,7 +82,7 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     const int warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
     for (int idx = warp_bin_final - 1; idx >= range.x; --idx) {
         int valid = inside && idx < bin_final;
-        const int32_t g = gaussians_ids_sorted[idx];
+        const int64_t g = gaussians_ids_sorted[idx];
         const float3 conic = conics[g];
         const float2 center = xys[g];
         const float2 delta = {center.x - px, center.y - py};
@@ -155,7 +155,7 @@ extern "C" __global__ void rasterize_backward_kernel(
     const unsigned img_size_x,
     const unsigned img_size_y,
     const unsigned img_size_z,
-    const int32_t* __restrict__ gaussian_ids_sorted,
+    const int64_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -204,7 +204,7 @@ extern "C" __global__ void rasterize_backward_kernel(
     const int2 range = tile_bins[tile_id];
     const int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    __shared__ int32_t id_batch[BLOCK_SIZE];
+    __shared__ int64_t id_batch[BLOCK_SIZE];
     __shared__ float3 xy_opacity_batch[BLOCK_SIZE];
     __shared__ float3 conic_batch[BLOCK_SIZE];
     __shared__ float3 rgbs_batch[BLOCK_SIZE];
@@ -230,7 +230,7 @@ extern "C" __global__ void rasterize_backward_kernel(
         int batch_size = min(BLOCK_SIZE, batch_end + 1 - range.x);
         const int idx = batch_end - tr;
         if (idx >= range.x) {
-            int32_t g_id = gaussian_ids_sorted[idx];
+            int64_t g_id = gaussian_ids_sorted[idx];
             id_batch[tr] = g_id;
             const float2 xy = xys[g_id];
             const float opac = opacities[g_id];
@@ -313,7 +313,7 @@ extern "C" __global__ void rasterize_backward_kernel(
             warpSum2(v_xy_local, warp);
             warpSum(v_opacity_local, warp);
             if (warp.thread_rank() == 0) {
-                int32_t g = id_batch[t];
+                int64_t g = id_batch[t];
                 float* v_rgb_ptr = (float*)(v_rgb);
                 atomicAdd(v_rgb_ptr + 3*g + 0, v_rgb_local.x);
                 atomicAdd(v_rgb_ptr + 3*g + 1, v_rgb_local.y);

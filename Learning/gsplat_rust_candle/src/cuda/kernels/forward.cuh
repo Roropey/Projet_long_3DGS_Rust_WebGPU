@@ -26,7 +26,7 @@ extern "C" __global__ void project_gaussians_forward_kernel(
     float* __restrict__ radii,
     float3* __restrict__ conics,
     float* __restrict__ compensation,
-    int32_t* __restrict__ num_tiles_hit
+    int64_t* __restrict__ num_tiles_hit
 );
 
 // compute output color image from binned and sorted gaussians
@@ -37,7 +37,7 @@ extern "C" __global__ void rasterize_forward(
     const unsigned img_size_x,
     const unsigned img_size_y,
     const unsigned img_size_z,
-    const int32_t* __restrict__ gaussian_ids_sorted,
+    const int64_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -58,7 +58,7 @@ extern "C" __global__ void nd_rasterize_forward(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const unsigned channels,
-    const int32_t* __restrict__ gaussian_ids_sorted,
+    const int64_t* __restrict__ gaussian_ids_sorted,
     const int2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
@@ -93,12 +93,12 @@ __global__ void map_gaussian_to_intersects(
     const float2* __restrict__ xys,
     const float* __restrict__ depths,
     const int* __restrict__ radii,
-    const int32_t* __restrict__ cum_tiles_hit,
+    const int64_t* __restrict__ cum_tiles_hit,
     const unsigned tile_bounds_x,
     const unsigned tile_bounds_y,
     const unsigned tile_bounds_z,
     int64_t* __restrict__ isect_ids,
-    int32_t* __restrict__ gaussian_ids
+    int64_t* __restrict__ gaussian_ids
 );
 
 extern "C" __global__ void get_tile_bin_edges(

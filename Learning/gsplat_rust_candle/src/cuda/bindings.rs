@@ -103,7 +103,7 @@ impl ProjectGaussians {
         let dst_radii = unsafe { dev.alloc::<f32>(num_points) }.w()?;
         let dst_conics = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-        let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
+        let dst_num_tiles_hit = unsafe { dev.alloc::<i64>(num_points) }.w()?;
 
         //println!("creating params for kernel launch");
         let params: &mut [_] = &mut [
@@ -223,7 +223,7 @@ impl ProjectGaussians {
         let dst_radii = unsafe { dev.alloc::<f32>(num_points) }.w()?;
         let dst_conics = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
         let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
-        let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(num_points) }.w()?;
+        let dst_num_tiles_hit = unsafe { dev.alloc::<i64>(num_points) }.w()?;
 
         let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev.clone());
         let dst_xys_d = candle_core::CudaStorage::wrap_cuda_slice(dst_xys_d, dev.clone());
@@ -624,6 +624,12 @@ impl CustomOp3 for RasterizeGaussians {
             _grad_res: &Tensor,
         ) -> Result<(Option<Tensor>, Option<Tensor>, Option<Tensor>)> {
 
+        println!("Tensor_gauss shape : {:#?}", tensor_gauss.shape());
+        println!("Gaussians_ids_sorted shape : {:#?}", gaussians_ids_sorted.shape());
+        println!("Tile_bins shape : {:#?}", tile_bins.shape());
+        println!("Res shape : {:#?}", _res.shape());
+        println!("Grad_res shape : {:#?}", _grad_res.shape());
+
         let xys = tensor_gauss.narrow(1, 0, 2)?;
         let xys = xys.contiguous()?;
         let conics = tensor_gauss.narrow(1, 2, 3)?;
@@ -807,7 +813,7 @@ mod test {
         let dst_radii = unsafe { dev.alloc::<f32>(1) }.w()?;
         let dst_conics = unsafe { dev.alloc::<f32>(3) }.w()?;
         let dst_compensation = unsafe { dev.alloc::<f32>(1) }.w()?;
-        let dst_num_tiles_hit = unsafe { dev.alloc::<u32>(1) }.w()?;
+        let dst_num_tiles_hit = unsafe { dev.alloc::<i64>(1) }.w()?;
 
         let slice_m3d = unsafe { dev.alloc::<f32>(3) }.w()?;
         let slice_sc = unsafe { dev.alloc::<f32>(1) }.w()?;
