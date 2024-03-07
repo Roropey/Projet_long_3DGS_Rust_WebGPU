@@ -177,7 +177,20 @@ impl Trainer {
                 None,
                 None,
             ).unwrap();
+            if save_imgs && iter%1==0{
+                println!("enter save");
+                let out_img_save = (out_img.copy().unwrap() * 255.).unwrap().to_dtype(DType::U8).unwrap().permute((2,0,1)).unwrap();
+                println!("image in rgb");
+                println!("save img");
+                let mut img_path_buff = self.img_path_res.to_path_buf();
+                // Modification ici: changer set_extension pour utiliser set_file_name avec le format correct
+                let new_filename = format!("{}_{}.jpg", img_path_buff.file_stem().unwrap().to_str().unwrap(), iter);
+                img_path_buff.set_file_name(new_filename);
+                let image_path = img_path_buff.as_path(); 
+                println!("Saving image to {:?}", image_path);
+                save_image(&out_img_save, image_path);
 
+            }
             
             
 
