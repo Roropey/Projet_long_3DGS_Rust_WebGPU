@@ -628,9 +628,9 @@ impl CustomOp3 for RasterizeGaussians {
         let xys = xys.contiguous()?;
         let conics = tensor_gauss.narrow(1, 2, 3)?;
         let conics = conics.contiguous()?;
-        let colors = tensor_gauss.narrow(1, 5, 3)?;
+        let colors = tensor_gauss.narrow(1, 5, self.channels as usize)?;
         let colors = colors.contiguous()?;
-        let opacity = tensor_gauss.narrow(1, 8, 1)?;
+        let opacity = tensor_gauss.narrow(1, 5 + self.channels as usize, 1)?;
         let opacity = opacity.contiguous()?;
         
         let (xys_st, xys_l) = xys.storage_and_layout();
