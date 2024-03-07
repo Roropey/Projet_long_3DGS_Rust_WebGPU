@@ -77,10 +77,10 @@ impl Trainer {
     pub fn _init_gaussians(num_points:usize,device:Device) -> (Var,Var,Var,Var,Var,Tensor,Tensor){
         // Random gaussians
         let bd = 2.0;
-
+        let d = 3;
         let means = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap().affine(1.0,-0.5).unwrap().affine(bd,0.0).unwrap();
         let scales = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap();
-        let rgbs = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,3],&device).unwrap();
+        let rgbs = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,d],&device).unwrap();
 
         let u = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
         let v = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
@@ -103,7 +103,7 @@ impl Trainer {
             [0.0, 0.0, 0.0, 1.0],
         ],&device).unwrap();
 
-        let background = Tensor::zeros(3, candle::DType::F64, &device).unwrap();
+        let background = Tensor::zeros(d, candle::DType::F64, &device).unwrap();
 
 
         
@@ -139,7 +139,6 @@ impl Trainer {
         ).unwrap(); // Utilisation de AdamW au lieu de Adam (trouve pas Adam alors qu'il existe dans optimizer.rs .unwrap())
         let mse_loss = candle_nn::loss::mse;
 
-        //let mut frames = Vec::new();
 
         for iter in 0..iterations{
             println!("On va project iter : {}",iter);
@@ -193,18 +192,20 @@ impl Trainer {
             
             adam_optimize.backward_step(&loss).unwrap();
             println!("Iteration {}/{}, Loss {}",iter+1,iterations,loss);
-            /* if save_imgs && iter%1==0{
-                let out_img = (out_img * 255.).unwrap().to_dtype(DType::U8).unwrap();
-                frames.push(out_img.clone());
-                let mut img_path_buff = self.img_path_res.to_path_buf();
-                // Modification ici: changer set_extension pour utiliser set_file_name avec le format correct
-                let new_filename = format!("{}_{}.jpg", img_path_buff.file_stem().unwrap().to_str().unwrap(), iter);
-                img_path_buff.set_file_name(new_filename);
-                let image_path = img_path_buff.as_path(); 
-                println!("Saving image to {:?}", image_path);
-                save_image(&out_img, image_path);
+            // if save_imgs && iter%1==0{
+            //     println!("enter save");
+            //     let out_img_save = (out_img.copy().unwrap() * 255.).unwrap().to_dtype(DType::U8).unwrap().permute((2,0,1)).unwrap();
+            //     println!("image in rgb");
+            //     println!("save img");
+            //     let mut img_path_buff = self.img_path_res.to_path_buf();
+            //     // Modification ici: changer set_extension pour utiliser set_file_name avec le format correct
+            //     let new_filename = format!("{}_{}.jpg", img_path_buff.file_stem().unwrap().to_str().unwrap(), iter);
+            //     img_path_buff.set_file_name(new_filename);
+            //     let image_path = img_path_buff.as_path(); 
+            //     println!("Saving image to {:?}", image_path);
+            //     save_image(&out_img_save, image_path);
 
-            } */
+            // }
         }
 
     }

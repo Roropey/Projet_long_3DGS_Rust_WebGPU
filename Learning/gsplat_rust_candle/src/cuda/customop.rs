@@ -478,7 +478,7 @@ pub fn RasterizeGaussians(
 
         let op = BackpropOp::new3(&tensor_gauss,&gaussians_ids_sorted, &tile_bins, |t1,t2, t3| Op::CustomOp3(t1,t2,t3, structc.clone())); 
         
-        let tensor_out = from_storage(storage, shape, op, false);
+        let tensor_out = from_storage(storage, shape, op, false).contiguous()?;
         //println!("should track op rasterize : {}", tensor_out.track_op());
         // match tensor_out.op() {
         //     Some(op) => println!("some op fw"),
@@ -495,14 +495,14 @@ pub fn RasterizeGaussians(
         //println!("tensour_out is variable : {}", tensor_out.is_variable());
         //println!("tensor_gauss is variable : {}", tensor_gauss.is_variable());
         
-        let out_img = tensor_out.narrow(1, 0, channels as usize)?.contiguous()?;
+        let out_img = tensor_out.narrow(2, 0, channels as usize)?.contiguous()?;
 
         //println!("out_img apres narrow: {}", out_img);        
 
-        let final_Ts = tensor_out.narrow(1, channels as usize, 1)?.squeeze(2)?.contiguous()?;
-        let final_index = tensor_out.narrow(1, channels as usize + 1, 1)?.squeeze(2)?.contiguous()?;
-        let out_alpha = tensor_out.narrow(1, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
-
+        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?.contiguous()?;
+        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?.contiguous()?;
+        let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
+        println!("On a fini forward rasterize");
         (out_img,out_alpha,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
     };
     if return_alpha {

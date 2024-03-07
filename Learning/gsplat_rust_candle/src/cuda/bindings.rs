@@ -658,14 +658,14 @@ impl CustomOp3 for RasterizeGaussians {
         let dev = xys_st.device();
 
         
-        let v_out_img = _grad_res.narrow(1, 0, 2)?;
+        let v_out_img = _grad_res.narrow(2, 0, self.channels as usize)?;
         let v_out_img = v_out_img.contiguous()?;
-        let final_Ts = _res.narrow(1, 2, 3)?;
-        let final_Ts = final_Ts.contiguous()?;
-        let final_index = _res.narrow(1, 5, 3)?;
-        let final_index = final_index.contiguous()?;
-        let v_out_alpha = _grad_res.narrow(1, 8, 1)?;
-        let v_out_alpha = v_out_alpha.contiguous()?;
+        let final_Ts = _res.narrow(2, self.channels as usize, 1)?;
+        let final_Ts = final_Ts.squeeze(2)?.contiguous()?;
+        let final_index = _res.narrow(2, self.channels as usize + 1, 1)?;
+        let final_index = final_index.squeeze(2)?.contiguous()?;
+        let v_out_alpha = _grad_res.narrow(2, self.channels as usize + 2, 1)?;
+        let v_out_alpha = v_out_alpha.squeeze(2)?.contiguous()?;
 
         let (v_out_img_st, v_out_img_l) = v_out_img.storage_and_layout();
         let v_out_img_st = super::customop::to_cuda_storage(&v_out_img_st, &v_out_img_l)?;
@@ -682,9 +682,8 @@ impl CustomOp3 for RasterizeGaussians {
         let num_points = xys.dim(0)?;
         let dst_v_xy = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         let dst_v_conic = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
-        let dst_v_colors = unsafe { dev.alloc::<f32>(num_points * 3) }.w()?;
+        let dst_v_colors = unsafe { dev.alloc::<f32>(num_points * self.channels as usize) }.w()?;
         let dst_v_opacity = unsafe { dev.alloc::<f32>(num_points * 1) }.w()?;
-        let dst_v_out_alpha = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_backward_kernel", BACKWARD)?
@@ -708,7 +707,7 @@ impl CustomOp3 for RasterizeGaussians {
             (&slice_final_Ts).as_kernel_param(),
             (&slice_final_index).as_kernel_param(),
             (&slice_v_out_img).as_kernel_param(),
-            (&dst_v_out_alpha).as_kernel_param(),
+            (&slice_v_out_alpha).as_kernel_param(),
             (&dst_v_xy).as_kernel_param(),
             (&dst_v_conic).as_kernel_param(),
             (&dst_v_colors).as_kernel_param(),
@@ -732,7 +731,7 @@ impl CustomOp3 for RasterizeGaussians {
                 (&slice_final_Ts).as_kernel_param(),
                 (&slice_final_index).as_kernel_param(),
                 (&slice_v_out_img).as_kernel_param(),
-                (&dst_v_out_alpha).as_kernel_param(),
+                (&slice_v_out_alpha).as_kernel_param(),
                 (&dst_v_xy).as_kernel_param(),
                 (&dst_v_conic).as_kernel_param(),
                 (&dst_v_colors).as_kernel_param(),
