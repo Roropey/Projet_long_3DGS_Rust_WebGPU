@@ -515,6 +515,8 @@ pub fn RasterizeGaussians(
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+
     use super::*;
 
     fn projection_matrix(
@@ -922,32 +924,42 @@ mod tests {
         if let Some(op) = cov3d.op() {
             println!("some op");
             match op {
-                Op::Narrow(t,_,_,_) => {
-                    println!("narrow");
-                    let grad = Tensor::rand(0.0 as f32,1.0 as f32,t.shape(),t.device())?;
-                    let (_,layout) = t.storage_and_layout();
-                    println!("layout de tensor_in dans backward: {:#?}", layout);
-                    println!("tensor id : {:?}", t.id());
+                Op::Copy(t) =>{
                     if let Some(op2) = t.op(){
-                        
-                        println!("some op2");
-                        match op2 {
-                            Op::CustomOp2(arg1,arg2,c) => {
-                                println!("customop2");
-                                let structc = c.bwd(&arg1,&arg2,t,&grad)?;
-                                if let (Some(grad),_) = structc {
-                                    println!("grad : {}", grad);
+                        if let Some(op2) = t.op(){
+                            match op2 {
+                                Op::Narrow(t,_,_,_) => {
+                                    println!("narrow");
+                                    let grad = Tensor::rand(0.0 as f32,1.0 as f32,t.shape(),t.device())?;
+                                    let (_,layout) = t.storage_and_layout();
+                                    println!("layout de tensor_in dans backward: {:#?}", layout);
+                                    println!("tensor id : {:?}", t.id());
+                                    if let Some(op2) = t.op(){
+                                        
+                                        println!("some op2");
+                                        match op2 {
+                                            Op::CustomOp2(arg1,arg2,c) => {
+                                                println!("customop2");
+                                                let structc = c.bwd(&arg1,&arg2,t,&grad)?;
+                                                if let (Some(grad),_) = structc {
+                                                    println!("grad : {}", grad);
+                                                }
+                                                else{
+                                                    println!("no grad");
+                                                }
+                                            }
+                                            _ => panic!("Op2 n'est pas un CustomOp2")
+                                        }
+                                    }
                                 }
-                                else{
-                                    println!("no grad");
-                                }
+                                _ => panic!("Op n'est pas un Narrow")
                             }
-                            _ => panic!("Op2 n'est pas un CustomOp2")
+                            
                         }
                     }
                 }
-                _ => panic!("Op n'est pas un Narrow")
-            }
+                _ => panic!("Op n'est pas un Copy")
+        }
         }
         else{
             println!("no op");
