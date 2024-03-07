@@ -157,7 +157,7 @@ extern "C" __global__ void map_gaussian_to_intersects(
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 extern "C" __global__ void get_tile_bin_edges(
-    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, int2* __restrict__ tile_bins
+    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, uint2* __restrict__ tile_bins
 ) {
     unsigned idx = cg::this_grid().thread_rank();
     if (idx >= num_intersects)
@@ -166,7 +166,7 @@ extern "C" __global__ void get_tile_bin_edges(
     int32_t cur_tile_idx = (int32_t)(isect_ids_sorted[idx] >> 32);
     if (idx == 0 || idx == num_intersects - 1) {
         if (idx == 0)
-            tile_bins[cur_tile_idx].x = 0;
+            tile_bins[cur_tile_idx].x = (unsigned) 0;
         if (idx == num_intersects - 1)
             tile_bins[cur_tile_idx].y = num_intersects;
     }
@@ -192,7 +192,7 @@ extern "C" __global__ void nd_rasterize_forward(
     const unsigned img_size_z,
     const unsigned channels,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const uint2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float* __restrict__ colors,
@@ -220,7 +220,7 @@ extern "C" __global__ void nd_rasterize_forward(
     }
 
     // which gaussians to look through in this tile
-    int2 range = tile_bins[tile_id];
+    uint2 range = tile_bins[tile_id];
     float T = 1.f;
 
     // iterate over all gaussians and apply rendering EWA equation (e.q. 2 from
@@ -280,7 +280,7 @@ extern "C" __global__ void rasterize_forward(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const uint2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float3* __restrict__ colors,
@@ -315,7 +315,7 @@ extern "C" __global__ void rasterize_forward(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
-    int2 range = tile_bins[tile_id];
+    uint2 range = tile_bins[tile_id];
     int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     __shared__ int64_t id_batch[BLOCK_SIZE];

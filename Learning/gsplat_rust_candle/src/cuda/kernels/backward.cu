@@ -32,7 +32,7 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     const unsigned img_size_z,
     const unsigned channels,
     const int64_t* __restrict__ gaussians_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const uint2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float* __restrict__ rgbs,
@@ -62,7 +62,7 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     // keep not rasterizing threads around for reading data
     const bool inside = (i < img_size.y && j < img_size.x);
     // which gaussians get gradients for this pixel
-    const int2 range = tile_bins[tile_id];
+    const uint2 range = tile_bins[tile_id];
     // df/d_out for this pixel
     const float *v_out = &(v_output[channels * pix_id]);
     const float v_out_alpha = v_output_alpha[pix_id];
@@ -156,7 +156,7 @@ extern "C" __global__ void rasterize_backward_kernel(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const uint2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float3* __restrict__ rgbs,
@@ -201,7 +201,7 @@ extern "C" __global__ void rasterize_backward_kernel(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
-    const int2 range = tile_bins[tile_id];
+    const uint2 range = tile_bins[tile_id];
     const int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     __shared__ int64_t id_batch[BLOCK_SIZE];
