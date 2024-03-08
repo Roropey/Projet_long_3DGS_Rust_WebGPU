@@ -42,8 +42,8 @@ impl Trainer {
         let gt_image = gt_image.to_device(&device).unwrap();
         let num_points: u32 = num_points;
 
-        let block_x: u32 = 16;
-        let block_y: u32 = 16;
+        let block_x: u32 = 1;
+        let block_y: u32 = 1;
         let fov_x: f32 = std::f32::consts::PI / 2.0;
         let h: u32 = gt_image.dim(0).unwrap().try_into().unwrap();
         let w: u32 = gt_image.dim(1).unwrap().try_into().unwrap();

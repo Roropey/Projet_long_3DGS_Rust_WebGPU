@@ -331,6 +331,7 @@ pub fn RasterizeGaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
+<<<<<<< HEAD
     let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,_final_Ts,_final_idx) =  if num_intersects < 1 {
         ((Tensor::ones((img_height as usize,img_width as usize,colors.dim(candle_core::D::Minus1)?),candle_core::DType::F32, xys.device())? * background)?,
         Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?,
@@ -338,6 +339,11 @@ pub fn RasterizeGaussians(
         Tensor::zeros((0,2),candle_core::DType::F32,xys.device())?,
         Tensor::zeros((img_height as usize,img_width as usize), candle_core::DType::F32, xys.device())?,
         Tensor::zeros((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
+=======
+    let (out_img, out_alpha) =  if num_intersects < 1 {
+        (background.unsqueeze(0)?.unsqueeze(0)?.repeat((img_height as usize,img_width as usize,1))?,
+        Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
+>>>>>>> 047b780696ff4f6568432301cd5715edcf172266
     } else  {
         let (
             _isect_ids_unsorted,
@@ -496,14 +502,9 @@ pub fn RasterizeGaussians(
         //println!("tensor_gauss is variable : {}", tensor_gauss.is_variable());
         
         let out_img = tensor_out.narrow(2, 0, channels as usize)?.contiguous()?;
-
-        //println!("out_img apres narrow: {}", out_img);        
-
-        let final_Ts = tensor_out.narrow(2, channels as usize, 1)?.squeeze(2)?.contiguous()?;
-        let final_index = tensor_out.narrow(2, channels as usize + 1, 1)?.squeeze(2)?.contiguous()?;
         let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
         println!("On a fini forward rasterize");
-        (out_img,out_alpha,gaussians_ids_sorted.clone(),tile_bins.clone(),final_Ts,final_index)
+        (out_img,out_alpha)
     };
     if return_alpha {
         Ok((out_img,Some(out_alpha)))
