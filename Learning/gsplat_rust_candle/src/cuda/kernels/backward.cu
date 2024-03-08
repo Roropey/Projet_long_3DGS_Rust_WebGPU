@@ -161,7 +161,7 @@ extern "C" __global__ void rasterize_backward_kernel(
     const float3* __restrict__ conics,
     const float3* __restrict__ rgbs,
     const float* __restrict__ opacities,
-    const float3& __restrict__ background,
+    const float3* __restrict__ background,
     const float* __restrict__ final_Ts,
     const float* __restrict__ final_index,
     const float3* __restrict__ v_output,
@@ -292,9 +292,9 @@ extern "C" __global__ void rasterize_backward_kernel(
 
                 v_alpha += T_final * ra * v_out_alpha;
                 // contribution from background pixel
-                v_alpha += -T_final * ra * background.x * v_out.x;
-                v_alpha += -T_final * ra * background.y * v_out.y;
-                v_alpha += -T_final * ra * background.z * v_out.z;
+                v_alpha += -T_final * ra * (*background).x * v_out.x;
+                v_alpha += -T_final * ra * (*background).y * v_out.y;
+                v_alpha += -T_final * ra * (*background).z * v_out.z;
                 // update the running sum
                 buffer.x += rgb.x * fac;
                 buffer.y += rgb.y * fac;
