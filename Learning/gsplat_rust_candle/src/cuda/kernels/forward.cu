@@ -157,7 +157,7 @@ extern "C" __global__ void map_gaussian_to_intersects(
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 extern "C" __global__ void get_tile_bin_edges(
-    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, uint2* __restrict__ tile_bins
+    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, float2* __restrict__ tile_bins
 ) {
     unsigned idx = cg::this_grid().thread_rank();
     if (idx >= num_intersects)
@@ -166,7 +166,7 @@ extern "C" __global__ void get_tile_bin_edges(
     int32_t cur_tile_idx = (int32_t)(isect_ids_sorted[idx] >> 32);
     if (idx == 0 || idx == num_intersects - 1) {
         if (idx == 0)
-            tile_bins[cur_tile_idx].x = (unsigned) 0;
+            tile_bins[cur_tile_idx].x =  0;
         if (idx == num_intersects - 1)
             tile_bins[cur_tile_idx].y = num_intersects;
     }
@@ -192,7 +192,7 @@ extern "C" __global__ void nd_rasterize_forward(
     const unsigned img_size_z,
     const unsigned channels,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const uint2* __restrict__ tile_bins,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float* __restrict__ colors,
@@ -220,13 +220,13 @@ extern "C" __global__ void nd_rasterize_forward(
     }
 
     // which gaussians to look through in this tile
-    uint2 range = tile_bins[tile_id];
+    float2 range = tile_bins[tile_id];
     float T = 1.f;
 
     // iterate over all gaussians and apply rendering EWA equation (e.q. 2 from
     // paper)
     int idx;
-    for (idx = range.x; idx < range.y; ++idx) {
+    for (idx = (int32_t) range.x; idx < (int32_t)range.y; ++idx) {
         const int64_t g = gaussian_ids_sorted[idx];
         const float3 conic = conics[g];
         const float2 center = xys[g];
@@ -264,7 +264,7 @@ extern "C" __global__ void nd_rasterize_forward(
     }
     final_Ts[pix_id] = T; // transmittance at last gaussian in this pixel
     final_index[pix_id] =
-        (idx == range.y)
+        (idx == (int32_t) range.y)
             ? idx - 1
             : idx; // index of in bin of last gaussian in this pixel
     for (int c = 0; c < channels; ++c) {
@@ -280,7 +280,7 @@ extern "C" __global__ void rasterize_forward(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const uint2* __restrict__ tile_bins,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float3* __restrict__ colors,
@@ -315,8 +315,8 @@ extern "C" __global__ void rasterize_forward(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
-    uint2 range = tile_bins[tile_id];
-    int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    float2 range = tile_bins[tile_id];
+    int num_batches = ((int32_t) range.y - (int32_t) range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     __shared__ int64_t id_batch[BLOCK_SIZE];
     __shared__ float3 xy_opacity_batch[BLOCK_SIZE];
@@ -341,9 +341,9 @@ extern "C" __global__ void rasterize_forward(
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
-        int batch_start = range.x + BLOCK_SIZE * b;
+        int batch_start = (int32_t) range.x + BLOCK_SIZE * b;
         int idx = batch_start + tr;
-        if (idx < range.y) {
+        if (idx < (int32_t) range.y) {
             int64_t g_id = gaussian_ids_sorted[idx];
             id_batch[tr] = g_id;
             const float2 xy = xys[g_id];
@@ -356,7 +356,7 @@ extern "C" __global__ void rasterize_forward(
         block.sync();
 
         // process gaussians in the current batch for this pixel
-        int batch_size = min(BLOCK_SIZE, range.y - batch_start);
+        int batch_size = min(BLOCK_SIZE, (int32_t) range.y - batch_start);
         for (int t = 0; (t < batch_size) && !done; ++t) {
             const float3 conic = conic_batch[t];
             const float3 xy_opac = xy_opacity_batch[t];

@@ -194,7 +194,7 @@ impl Trainer {
             
             adam_optimize.backward_step(&loss).unwrap();
             println!("Iteration {}/{}, Loss {}",iter+1,iterations,loss);
-            if save_imgs && iter%10==0{
+            if save_imgs && iter%10==4{
                 println!("enter save");
                 let out_img_save = (out_img.copy().unwrap() * 255.).unwrap().to_dtype(DType::U8).unwrap().permute((2,0,1)).unwrap();
                 println!("image in rgb");

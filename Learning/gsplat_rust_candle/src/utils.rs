@@ -221,7 +221,7 @@ pub fn get_tile_bin_edges(
     };
     let func = dev.get_or_load_func("get_tile_bin_edges",FORWARD).unwrap();
     let (tile_x,tile_y,_) = tile_bounds;
-    let dst_tile_bins = unsafe { dev.alloc::<u32>((tile_x*tile_y*2) as usize) }.w().unwrap();
+    let dst_tile_bins = unsafe { dev.alloc::<f32>((tile_x*tile_y*2) as usize) }.w().unwrap();
     let params = (num_intersects,&slice,&dst_tile_bins);
     let n_threads = 1024;
     let nb_block = (num_intersects + n_threads - 1 )/n_threads ;
