@@ -38,7 +38,7 @@ extern "C" __global__ void rasterize_forward(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const uint2* __restrict__ tile_bins,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float3* __restrict__ colors,
@@ -59,7 +59,7 @@ extern "C" __global__ void nd_rasterize_forward(
     const unsigned img_size_z,
     const unsigned channels,
     const int64_t* __restrict__ gaussian_ids_sorted,
-    const uint2* __restrict__ tile_bins,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float* __restrict__ colors,
@@ -102,5 +102,5 @@ __global__ void map_gaussian_to_intersects(
 );
 
 extern "C" __global__ void get_tile_bin_edges(
-    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, uint2* __restrict__ tile_bins
+    const int num_intersects, const int64_t* __restrict__ isect_ids_sorted, float2* __restrict__ tile_bins
 );

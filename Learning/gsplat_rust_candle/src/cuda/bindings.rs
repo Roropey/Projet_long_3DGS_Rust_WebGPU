@@ -523,7 +523,7 @@ impl RasterizeGaussians {
         //println!("Start fwd");
         let dev = gaussian_ids_sorted_storage.device().clone();
         let gaussian_ids_sorted_slice = get_cuda_slice_i64(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
-        let tile_bins_slice = get_cuda_slice_u32(&tile_bins_storage, tile_bins_layout.clone())?;
+        let tile_bins_slice = get_cuda_slice_f32(&tile_bins_storage, tile_bins_layout.clone())?;
         let xys_slice = get_cuda_slice_f32(&xys_storage, xys_layout.clone())?;
         let conics_slice = get_cuda_slice_f32(&conics_storage, conics_layout.clone())?;
         let colors_slice = get_cuda_slice_f32(&colors_storage, colors_layout.clone())?;
@@ -668,7 +668,7 @@ impl CustomOp3 for RasterizeGaussians {
         let slice_gaussians_ids_sorted = get_cuda_slice_i64(&gaussians_ids_sorted_st, gaussians_ids_sorted_l.clone())?;
         let (tile_bins_st, tile_bins_l) = tile_bins.storage_and_layout();
         let tile_bins_st = super::customop::to_cuda_storage(&tile_bins_st, &tile_bins_l)?;
-        let slice_tile_bins = get_cuda_slice_u32(&tile_bins_st, tile_bins_l.clone())?;
+        let slice_tile_bins = get_cuda_slice_f32(&tile_bins_st, tile_bins_l.clone())?;
         let (background_st, background_l) = self.background.storage_and_layout();
         let background_st = super::customop::to_cuda_storage(&background_st, &background_l)?;
         let slice_background = get_cuda_slice_f32(&background_st, background_l.clone())?;
