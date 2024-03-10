@@ -1,6 +1,8 @@
 # gsplat en Rust avec Candle
-
-![Teaser](/gifs/lenagif.gif?raw=true)
+<p align="center">
+  <img src="/Learning/gsplat_rust_candle/gifs/lenagif.gif" alt="animated" />
+  <img src="/Learning/gsplat_rust_candle/gifs/CIRCLEGIF.gif" alt="animated" />
+</p>
 
 Cette implémentation reprend les programmes [**gsplat**](https://github.com/nerfstudio-project/gsplat.git) de Nerfstudio mais en les implémentant en Rust et en appelant les programmes CUDA.
 Certaines modifications ont été apporté en terme de type par rapport aux kernels CUDA et variables pour correspondre aux types utilisable avec Candle (par exemple le `int32_t` utilisé à l'origine dans les kernels de *rasterize* a été modifié en `int64_t`.
