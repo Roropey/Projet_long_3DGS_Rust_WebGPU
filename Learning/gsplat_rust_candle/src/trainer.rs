@@ -42,8 +42,8 @@ impl Trainer {
         let gt_image = gt_image.to_device(&device).unwrap();
         let num_points: u32 = num_points;
 
-        let block_x: u32 = 1;
-        let block_y: u32 = 1;
+        let block_x: u32 = 16;
+        let block_y: u32 = 16;
         let fov_x: f32 = std::f32::consts::PI / 2.0;
         let h: u32 = gt_image.dim(0).unwrap().try_into().unwrap();
         let w: u32 = gt_image.dim(1).unwrap().try_into().unwrap();
@@ -86,6 +86,8 @@ impl Trainer {
         let v = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
         let w = Tensor::rand(0.0 as f32,1.0 as f32,&[num_points,1],&device).unwrap();
 
+        let (_,layout) = u.storage_and_layout();
+
         let quats = Tensor::cat(
             &[
                 u.affine(-1.0,1.0).unwrap().sqrt().unwrap().mul(&v.affine(2.0*std::f64::consts::PI,0.0).unwrap().sin().unwrap()).unwrap(),                
@@ -115,6 +117,14 @@ impl Trainer {
         let opacities = candle::Var::from_tensor(&opacities).unwrap();//self.opacities.requires_grad = true;       
         viewmat.detach();  //self.viewmat.requires_grad = false;
 
+        println!("should track op mean: {}",means.track_op());
+        println!("should track op scales: {}",scales.track_op());
+        println!("should track op quats: {}",quats.track_op());
+        println!("should track op rgbs: {}",rgbs.track_op());
+        println!("should track op opacities: {}",opacities.track_op());
+        println!("should track op viewmat: {}",viewmat.track_op());
+        println!("should track op background: {}",background.track_op());
+        
         (means,scales,quats,rgbs,opacities,viewmat,background)
     }
 

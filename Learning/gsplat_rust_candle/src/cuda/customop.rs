@@ -139,6 +139,8 @@ pub fn ProjectGaussians(
     let (viewmat_storage, viewmat_layout) = viewmat.storage_and_layout();
     let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
 
+
+    
     let means3d_storage = to_cuda_storage(&means3d_storage, &means3d_layout)?;
     let scales_storage = to_cuda_storage(&scales_storage, &scales_layout)?;
     let quats_storage = to_cuda_storage(&quats_storage, &quats_layout)?;
@@ -331,20 +333,11 @@ pub fn RasterizeGaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
-<<<<<<< HEAD
-    let (out_img, out_alpha, _gaussians_ids_sorted,_tile_bins,_final_Ts,_final_idx) =  if num_intersects < 1 {
-        ((Tensor::ones((img_height as usize,img_width as usize,colors.dim(candle_core::D::Minus1)?),candle_core::DType::F32, xys.device())? * background)?,
-        Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?,
-        Tensor::zeros((0,1), candle_core::DType::F32, xys.device())?,
-        Tensor::zeros((0,2),candle_core::DType::F32,xys.device())?,
-        Tensor::zeros((img_height as usize,img_width as usize), candle_core::DType::F32, xys.device())?,
-        Tensor::zeros((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
-=======
-    let (out_img, out_alpha) =  if num_intersects < 1 {
+    println!("num_intersects : {}", num_intersects);
+    let (out_img, out_alpha) =  /* if num_intersects < 1 {
         (background.unsqueeze(0)?.unsqueeze(0)?.repeat((img_height as usize,img_width as usize,1))?,
         Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
->>>>>>> 047b780696ff4f6568432301cd5715edcf172266
-    } else  {
+    } else  */ {
         let (
             _isect_ids_unsorted,
             _gaussians_ids_unsorted,
@@ -456,6 +449,7 @@ pub fn RasterizeGaussians(
         } else {
             Tensor::zeros(tensor_final_Ts.shape(),candle_core::DType::F32,tensor_final_Ts.device())?
         };
+        println!("Layout de out_img : {:#?}", tensor_out_img.layout());
         let tensortot = Tensor::cat(
             &[
                 tensor_out_img,

@@ -57,6 +57,14 @@ impl ProjectGaussians {
         candle_core::CudaStorage,
         Shape,
     )> {
+        
+        /* println!("Layout de means3d : {:#?}", means3d_layout);
+        println!("Layout de scale : {:#?}", scale_layout);
+        println!("Layout de quats : {:#?}", quats_layout);
+        println!("Layout de viewmat : {:#?}", viewmat_layout);
+        println!("Layout de projmat : {:#?}", projmat_layout); */
+
+
         //Surement d'autre verif à faire dans le code pour voir si les inputs sont bon (taille, rank, etc...)
         let devm3d = means3d_storage.device().clone();
 
@@ -333,6 +341,7 @@ impl CustomOp2 for ProjectGaussians {
     ) -> Result<(Option<Tensor>, Option<Tensor>)> {
         let num_points = _arg1.shape().dims();
         let num_points = num_points[0];
+        println!("num_points dans project backward: {:#?}", num_points);
 
         let means3d = _arg1.narrow(1, 0, 3)?;
         let means3d = means3d.contiguous()?;
@@ -348,7 +357,9 @@ impl CustomOp2 for ProjectGaussians {
 
         //println!("on est par ici");
 
-        let dev = get_dev(&means3d)?;
+        let (storage, layout) = means3d.storage_and_layout();
+        let storage = super::customop::to_cuda_storage(&storage, &layout)?;
+        let dev = storage.device().clone();
 
         let (storage, layout) = viewmat.storage_and_layout();
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
@@ -533,6 +544,16 @@ impl RasterizeGaussians {
         let background_storage = super::customop::to_cuda_storage(&background_storage, &background_layout)?;
         let background_slice = get_cuda_slice_f32(&background_storage, background_layout.clone())?;
         
+        /* println!("Layout de gaussian_ids_sorted : {:#?}", gaussian_ids_sorted_layout);
+        println!("Layout de tile_bins : {:#?}", tile_bins_layout);
+        println!("Layout de xys : {:#?}", xys_layout);
+        println!("Layout de conics : {:#?}", conics_layout);
+        println!("Layout de colors : {:#?}", colors_layout);
+        println!("Layout de opacity : {:#?}", opacity_layout);
+        println!("Layout de background : {:#?}", background_layout); */
+
+
+
         //println!("get func");
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_forward", FORWARD)?
