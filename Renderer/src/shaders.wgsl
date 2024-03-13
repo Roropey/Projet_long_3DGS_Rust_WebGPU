@@ -623,6 +623,6 @@ fn fragment(
     if(alpha < 1.0/255.0) {
         discard;
     }
-    stage_out.gl_Color = vec4<f32>(stage_in.color.rgb * alpha, alpha);
+    stage_out.gl_Color = vec4<f32>(stage_in.color.rgb * alpha , alpha);
     return stage_out;
 }

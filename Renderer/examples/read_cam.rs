@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{self, Read};
 use std::collections::HashMap;
+use geometric_algebra::ppga3d::Point;
+use geometric_algebra::Zero;
+use nalgebra::{Matrix3, Matrix4, MatrixSlice, Vector3};
 use once_cell::sync::Lazy;
 
 #[derive(Debug, Clone)]
@@ -13,15 +16,15 @@ struct CameraModel<'a> {
 }
 
 #[derive(Debug, Clone)]
-struct Camera {
+pub struct Camera {
     id: u64,
     model: String,
-    width: u64,
-    height: u64,
+    pub width: u64,
+    pub height: u64,
     params: Vec<f64>,
 }
 
-struct Image {
+pub struct Image {
     id: u64,
     camera_id: u32,
     qvec: [f64;4],
@@ -29,40 +32,21 @@ struct Image {
 }
 
 // Définir CAMERA_MODELS si nécessaire
-const CAMERA_MODELS: [CameraModel; 11] = [
+const CAMERA_MODELS: [CameraModel; 2] = [
     CameraModel { model_id: 0, model_name: "SIMPLE_PINHOLE", num_params: 3 },
     CameraModel { model_id: 1, model_name: "PINHOLE", num_params: 4 },
-    CameraModel { model_id: 2, model_name: "SIMPLE_RADIAL", num_params: 4 },
-    CameraModel { model_id: 3, model_name: "RADIAL", num_params: 5 },
-    CameraModel { model_id: 4, model_name: "OPENCV", num_params: 8 },
-    CameraModel { model_id: 5, model_name: "OPENCV_FISHEYE", num_params: 8 },
-    CameraModel { model_id: 6, model_name: "FULL_OPENCV", num_params: 12 },
-    CameraModel { model_id: 7, model_name: "FOV", num_params: 5 },
-    CameraModel { model_id: 8, model_name: "SIMPLE_RADIAL_FISHEYE", num_params: 4 },
-    CameraModel { model_id: 9, model_name: "RADIAL_FISHEYE", num_params: 5 },
-    CameraModel { model_id: 10, model_name: "THIN_PRISM_FISHEYE", num_params: 12 }
 ];
 
+fn qvec2rotmat(qvec: &[f64; 4]) -> Matrix3<f64> {
+    Matrix3::new(   
+            1.0 - 2.0 * qvec[2].powi(2) - 2.0 * qvec[3].powi(2), 2.0 * qvec[1] * qvec[2] - 2.0 * qvec[0] * qvec[3], 2.0 * qvec[3] * qvec[1] + 2.0 * qvec[0] * qvec[2],
+            2.0 * qvec[1] * qvec[2] + 2.0 * qvec[0] * qvec[3], 1.0 - 2.0 * qvec[1].powi(2) - 2.0 * qvec[3].powi(2), 2.0 * qvec[2] * qvec[3] - 2.0 * qvec[0] * qvec[1],
+            2.0 * qvec[3] * qvec[1] - 2.0 * qvec[0] * qvec[2], 2.0 * qvec[2] * qvec[3] + 2.0 * qvec[0] * qvec[1], 1.0 - 2.0 * qvec[1].powi(2) - 2.0 * qvec[2].powi(2)
+    )
+}
 
-fn to_euler_angles(q: [f32;4]) -> [f32; 3] {
-    let mut angles = [0.0 ; 3];
-
-    // roll (rotation autour de l'axe x)
-    let sinr_cosp = 2.0 * (q[0] * q[1] + q[2] * q[3]);
-    let cosr_cosp = 1.0 - 2.0 * (q[1] *q[1] + q[2] * q[2]);
-    angles[0] = sinr_cosp.atan2(cosr_cosp);
-
-    // pitch (rotation autour de l'axe y)
-    let sinp = (1.0 + 2.0 * (q[0] * q[2] - q[1] * q[3])).sqrt();
-    let cosp = (1.0 - 2.0 * (q[0] * q[2] - q[1] * q[3])).sqrt();
-    angles[1] = 2.0 * sinp.atan2(cosp) - std::f32::consts::PI / 2.0;
-
-    // yaw (rotation autour de l'axe z)
-    let siny_cosp = 2.0 * (q[0] * q[3] + q[1] * q[2]);
-    let cosy_cosp = 1.0 - 2.0 * (q[2] * q[2] +  q[3]* q[3]);
-    angles[2] = siny_cosp.atan2(cosy_cosp);
-
-    angles
+fn focal2fov(focal: f64, pixels: f64) -> f64 {
+    2.0 * (pixels / (2.0 * focal)).atan()
 }
 
 fn read_extrinsics_binary(path_to_model_file: &PathBuf) -> HashMap<u64, Image> {
@@ -77,24 +61,24 @@ fn read_extrinsics_binary(path_to_model_file: &PathBuf) -> HashMap<u64, Image> {
         let mut buffers4 = [0;4];
         fid.read_exact(&mut buffers4).expect("Failed to read image_id");
         let image_id: u32 = u32::from_le_bytes(buffers4);
-        println!("image_id {}", image_id);
+        //println!("image_id {}", image_id);
 
         let mut qvec = [0.0;4];
         for i in 0..4{
             fid.read_exact(&mut buffer).expect("Failed to read qvec");
             qvec[i] = f64::from_le_bytes(buffer);
         }
-        println!("qvec {:?}", qvec);
+        //println!("qvec {:?}", qvec);
         let mut tvec = [0.0;3];
         for i in 0..3{
             fid.read_exact(&mut buffer).expect("Failed to read tvec");
             tvec[i] = f64::from_le_bytes(buffer);
         }
-        println!("tvec {:?}", tvec);
+        //println!("tvec {:?}", tvec);
 
         fid.read_exact(&mut buffers4).expect("Failed to read camera_id");
         let camera_id: u32 = u32::from_le_bytes(buffers4);
-        println!("camera_id {}", camera_id);
+        //println!("camera_id {}", camera_id);
 
         let mut buffer1 = [0;1];
         fid.read_exact(&mut buffer1).expect("Failed to read char");
@@ -108,7 +92,7 @@ fn read_extrinsics_binary(path_to_model_file: &PathBuf) -> HashMap<u64, Image> {
 
         fid.read_exact(&mut buffer).expect("Failed to read num_points2D");
         let num_points2D : i64 = i64::from_le_bytes(buffer);
-        println!("num_points2D {}", num_points2D);
+        //println!("num_points2D {}", num_points2D);
         let mut bufferfin = vec![0;24*(num_points2D as usize)];
         fid.read_exact(&mut bufferfin).expect("Failed to read end");
 
@@ -179,18 +163,98 @@ fn read_intrinsics_binary(path_to_model_file: &PathBuf) -> HashMap<u64, Camera> 
     cameras
 }
 
-fn read_colmap_scene_info(path: &str) -> HashMap<u64, Camera> {
+pub(crate) fn read_colmap_scene_info(path: &str) -> (HashMap<u64, Camera>, HashMap<u64, Image>) {
     let cameras_intrinsic_file = Path::new(&path).join("sparse/0").join("cameras.bin");
     let cameras_extrinsic_file = Path::new(&path).join("sparse/0").join("images.bin");
-    let cam_intrinsics:HashMap<u64, Camera>;
-    cam_intrinsics = read_intrinsics_binary(&cameras_intrinsic_file);
+    let cameras_intrinsics = read_intrinsics_binary(&cameras_intrinsic_file);
     let cameras_extrinsic = read_extrinsics_binary(&cameras_extrinsic_file);
-    let cameras: HashMap<u64, Camera> = HashMap::new();
-    cameras
+    (cameras_intrinsics,cameras_extrinsic)
+}
+
+pub(crate) fn compute_matrix(cameras_intrinsics: &HashMap<u64, Camera>,cameras_extrinsic : &HashMap<u64, Image> ,id_image: &u64 ) -> ([Point; 4], [Point; 4], [Point; 4], f64, f64) {
+    let image = cameras_extrinsic.get(id_image).unwrap();
+    let camera = cameras_intrinsics.get(&(image.camera_id as u64)).unwrap();
+    
+    let R = qvec2rotmat(&image.qvec).transpose();
+    let T = Vector3::new(image.tvec[0],image.tvec[1],image.tvec[2]);
+
+    let focal_length_x = camera.params[0];
+    let focal_length_y = camera.params[1];
+    let FoVy = focal2fov(focal_length_y, camera.height as f64);
+    let FoVx = focal2fov(focal_length_x, camera.width as f64);
+    let znear = 0.001;
+    let zfar = 100.00;
+
+    let world_view_transform = get_world_to_view2(&R, &T);
+    //println!("world_view_transform : {:?}", world_view_transform);
+    let world_view_transform_p = matrix_vers_points(world_view_transform);
+    let projection_matrix = get_projection_matrix(znear, zfar, FoVx, FoVy);
+    let projection_matrix_p = matrix_vers_points(projection_matrix);
+    //println!("projection_matrix : {:?}", projection_matrix);
+    let camera_center = world_view_transform.try_inverse().expect("erreur d'inversion de world_view_transform");
+    let camera_center_p = matrix_vers_points(camera_center);
+    //println!("camera_center : {:?}", camera_center);
+    (world_view_transform_p,projection_matrix_p,camera_center_p,FoVy,FoVx)
+
+}
+
+fn matrix_vers_points(matrix: Matrix4<f32>) -> [Point; 4] {
+    let mut points: [Point; 4] = [Point::zero();4];
+
+    for i in 0..4 {
+        let x = matrix[(0, i)];
+        let y = matrix[(1, i)];
+        let z = matrix[(2, i)];
+        let w = matrix[(3, i)];
+
+        points[i] = Point::new( x, y, z, w );
+    }
+
+    points
+}
+
+fn get_world_to_view2(R: &Matrix3<f64>, t: &Vector3<f64>) -> Matrix4<f32> {
+    let mut Rt = Matrix4::zeros();
+    Rt.fixed_slice_mut::<3, 3>(0, 0).copy_from(&R.transpose());
+    Rt.fixed_slice_mut::<3, 1>(0, 3).copy_from(t);
+    Rt[(3, 3)] = 1.0;
+    Rt.cast::<f32>()
+}
+
+
+fn get_projection_matrix(znear: f64, zfar: f64, fov_x: f64, fov_y: f64) -> Matrix4<f32> {
+    let tan_half_fov_y = (fov_y / 2.0).tan();
+    let tan_half_fov_x = (fov_x / 2.0).tan();
+
+    let top = tan_half_fov_y * znear;
+    let bottom = -top;
+    let right = tan_half_fov_x * znear;
+    let left = -right;
+
+    let mut p = Matrix4::zeros();
+
+    let z_sign = 1.0;
+
+    p[(0, 0)] = 2.0 * znear / (right - left);
+    p[(1, 1)] = 2.0 * znear / (top - bottom);
+    p[(0, 2)] = (right + left) / (right - left);
+    p[(1, 2)] = (top + bottom) / (top - bottom);
+    p[(3, 2)] = z_sign;
+    p[(2, 2)] = z_sign * zfar / (zfar - znear);
+    p[(2, 3)] = -(zfar * znear) / (zfar - znear);
+
+    p.cast::<f32>()
 }
 
 fn main() {
-    let test = to_euler_angles([0.9453782676338611, 0.32410944923190543, -0.01669260238097348, 0.030567188780477653]);
-    println!("{:?}",test);
-    //read_colmap_scene_info("C:\\3DGS\\gaussian-splatting\\tandt_db\\lefaucheux_7mm");
-}
+    //let test = to_euler_angles([0.9453782676338611, 0.32410944923190543, -0.01669260238097348, 0.030567188780477653]);
+    //println!("{:?}",test);
+    let (cameras_intrinsics,cameras_extrinsic) = read_colmap_scene_info("C:\\3DGS\\gaussian-splatting\\tandt_db\\lefaucheux_7mm");
+    //compute_matrix(cameras_intrinsics,cameras_extrinsic,&(1 as u64) );
+}  
+
+/*[  0.9981308, -0.0578112,  0.0198198;
+   0.0578112,  0.7879784, -0.6129829;
+   0.0198198,  0.6129829,  0.7898476 ]
+
+   [ -0.6599829, 0.019821, -0.0578548 ]*/

@@ -1,14 +1,12 @@
-use geometric_algebra::{
-    ppga3d::{Rotor, Translator},
-    GeometricProduct, One,
-};
+mod read_cam;
+
 use projetLong3DGaussianSplatting::{
     renderer::{Configuration, DepthSorting, Renderer},
     scene::Scene,
 };
 use std::{env, fs::File};
 
-async fn run() {
+async fn run(path:&str) {
     let file = File::open(env::args().nth(1).unwrap()).unwrap();
     let instance = wgpu::Instance::default();
 
@@ -46,14 +44,20 @@ async fn run() {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
+    let (cameras_intrinsics,cameras_extrinsic) = read_cam::read_colmap_scene_info(path);
+    let camera = cameras_intrinsics.get(&(1 as u64)).unwrap();
+    let width = if camera.width % 64 == 0{ camera.width as u32}else {64 * (camera.width as f32/64.0).round() as u32};
 
-    let texture = init_output_texture(&device, 896,612);  //size.width
+
+    let height = camera.height as u32;
+
+    let texture = init_output_texture(&device, width,height);  //size.width
     let surface_configuration = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: wgpu::TextureFormat::Rgba8Unorm, 
         view_formats: vec![wgpu::TextureFormat::Rgba8Unorm],
-        width: 896,//size.width,
-        height: 612,
+        width: width,
+        height: height,
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque, 
     };
@@ -68,8 +72,8 @@ async fn run() {
             spherical_harmonics_order: 2,
             max_splat_count: 1024 * 1024 * 4,
             radix_bits_per_digit: 8,
-            frustum_culling_tolerance: 1.1,
-            ellipse_margin: 2.0,
+            frustum_culling_tolerance: 1.5,
+            ellipse_margin: 4.0,
             splat_scale: 1.0,
         },
     );
@@ -82,20 +86,19 @@ async fn run() {
     scene.load_chunk(&queue, &mut file, file_header_size, 0..splat_count);
 
     let viewport_size = wgpu::Extent3d {
-        width: 896,
-        height: 612,
+        width: width,
+        height: height,
         depth_or_array_layers: 1,};
-    let camera_rotation = Rotor::one(); //Rotor::new(0.5,0.65934664, -0.051398516, 0.04705413);
-    let camera_translation = Translator::one(); //Translator::new(1.0,-0.10550948704559542, 0.6733392456924886, 2.7656673479604907); //Translator::one();
 
-    let camera_motor = camera_translation.geometric_product(camera_rotation);
+    println!("nb_im{:?}", cameras_extrinsic.keys());
+    for i in cameras_extrinsic.keys() {
+        let (world_view_transform,projection_matrix,camera_center,FoVy,FoVx) = read_cam::compute_matrix(&cameras_intrinsics,&cameras_extrinsic ,i );
+        let output_buffer = renderer.render_frame( &device, &mut queue, &texture, viewport_size,&scene, world_view_transform,projection_matrix,camera_center,FoVy,FoVx);
 
-    let output_buffer = renderer.render_frame( &device, &mut queue, &texture, viewport_size, camera_motor,&scene);
+        let img = to_image(&device, &output_buffer, texture.width(), texture.height()).await;
 
-    let img = to_image(&device, &output_buffer, texture.width(), texture.height()).await;
-
-    img.save("image.jpg").unwrap();
-
+        img.save(format!("erreur/image{}.jpg", i)).unwrap();
+    }
     print!("ok");
 
 }
@@ -150,5 +153,8 @@ async fn to_image(
 
 
 fn main() {
-    pollster::block_on(run());
+    pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\lefaucheux_7mm"));
+    //pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\tandt\\train"));
+    //pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\synthetic_truck"));
+
 }

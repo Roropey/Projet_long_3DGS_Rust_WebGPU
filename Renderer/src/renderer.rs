@@ -424,17 +424,22 @@ impl Renderer {
         queue: &mut wgpu::Queue,
         texture: &wgpu::Texture,
         viewport_size: wgpu::Extent3d,
-        camera_motor: Motor,
+        //camera_motor: Motor,
         scene: &Scene,
+        view_matrix: [Point; 4], 
+        projection_matrix : [Point; 4], 
+        camera_matrix : [Point; 4], 
+        FoVy : f64, 
+        FoVx : f64
     )-> wgpu::Buffer{
-        //camera_matrix contient la représentation matricielle de la transformation de la caméra, ce qui peut être utilisé dans le contexte de WebGPU pour déterminer la vue ou la projection d'objets 3D à l'écran.
-        let camera_matrix = motor3d_to_mat4(&camera_motor);
-        let view_matrix = motor3d_to_mat4(&camera_motor.inverse());
-        let field_of_view_y = std::f32::consts::PI * 0.5;
-        let view_height = (field_of_view_y * 0.5).tan();
-        let view_width = (viewport_size.width as f32 / viewport_size.height as f32) / view_height;
-        let projection_matrix = perspective_projection(view_width, view_height, 1.0, 1000.0);
+
+        let field_of_view_y = FoVy as f32; 
+        let field_of_view_x = FoVx as f32; 
+        let view_height = (field_of_view_y * 0.5).tan() as f32;
+        let view_width = (field_of_view_x * 0.5).tan() as f32;
+
         let view_projection_matrix = mat4_multiplication(&projection_matrix, &view_matrix);
+
         let mut splat_count = scene.splat_count;
         println!("{}",splat_count);
         let frame_view = &texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -517,9 +522,6 @@ impl Renderer {
 
         compute_pass.set_pipeline(&self.radii_compute_a_pipeline);
         compute_pass.dispatch_workgroups(workgroups_x, 1, 1);    }
-       
-
-
     
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
