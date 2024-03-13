@@ -31,8 +31,8 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     const unsigned img_size_y,
     const unsigned img_size_z,
     const unsigned channels,
-    const int32_t* __restrict__ gaussians_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const int64_t* __restrict__ gaussians_ids_sorted,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float* __restrict__ rgbs,
@@ -62,7 +62,7 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     // keep not rasterizing threads around for reading data
     const bool inside = (i < img_size.y && j < img_size.x);
     // which gaussians get gradients for this pixel
-    const int2 range = tile_bins[tile_id];
+    const float2 range = tile_bins[tile_id];
     // df/d_out for this pixel
     const float *v_out = &(v_output[channels * pix_id]);
     const float v_out_alpha = v_output_alpha[pix_id];
@@ -80,9 +80,9 @@ extern "C" __global__ void nd_rasterize_backward_kernel(
     const int bin_final = inside ? final_index[pix_id] : 0;
     cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
     const int warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
-    for (int idx = warp_bin_final - 1; idx >= range.x; --idx) {
+    for (int idx = warp_bin_final - 1; idx >= (int32_t) range.x; --idx) {
         int valid = inside && idx < bin_final;
-        const int32_t g = gaussians_ids_sorted[idx];
+        const int64_t g = gaussians_ids_sorted[idx];
         const float3 conic = conics[g];
         const float2 center = xys[g];
         const float2 delta = {center.x - px, center.y - py};
@@ -155,13 +155,13 @@ extern "C" __global__ void rasterize_backward_kernel(
     const unsigned img_size_x,
     const unsigned img_size_y,
     const unsigned img_size_z,
-    const int32_t* __restrict__ gaussian_ids_sorted,
-    const int2* __restrict__ tile_bins,
+    const int64_t* __restrict__ gaussian_ids_sorted,
+    const float2* __restrict__ tile_bins,
     const float2* __restrict__ xys,
     const float3* __restrict__ conics,
     const float3* __restrict__ rgbs,
     const float* __restrict__ opacities,
-    const float3& __restrict__ background,
+    const float3* __restrict__ background,
     const float* __restrict__ final_Ts,
     const float* __restrict__ final_index,
     const float3* __restrict__ v_output,
@@ -201,10 +201,10 @@ extern "C" __global__ void rasterize_backward_kernel(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
-    const int2 range = tile_bins[tile_id];
-    const int num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    const float2 range = tile_bins[tile_id];
+    const int num_batches = ((int32_t) range.y - (int32_t) range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    __shared__ int32_t id_batch[BLOCK_SIZE];
+    __shared__ int64_t id_batch[BLOCK_SIZE];
     __shared__ float3 xy_opacity_batch[BLOCK_SIZE];
     __shared__ float3 conic_batch[BLOCK_SIZE];
     __shared__ float3 rgbs_batch[BLOCK_SIZE];
@@ -226,11 +226,11 @@ extern "C" __global__ void rasterize_backward_kernel(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        const int batch_end = range.y - 1 - BLOCK_SIZE * b;
-        int batch_size = min(BLOCK_SIZE, batch_end + 1 - range.x);
+        const int batch_end = (int32_t) range.y - 1 - BLOCK_SIZE * b;
+        int batch_size = min(BLOCK_SIZE, batch_end + 1 - (int32_t) range.x);
         const int idx = batch_end - tr;
-        if (idx >= range.x) {
-            int32_t g_id = gaussian_ids_sorted[idx];
+        if (idx >= (int32_t) range.x) {
+            int64_t g_id = gaussian_ids_sorted[idx];
             id_batch[tr] = g_id;
             const float2 xy = xys[g_id];
             const float opac = opacities[g_id];
@@ -292,9 +292,9 @@ extern "C" __global__ void rasterize_backward_kernel(
 
                 v_alpha += T_final * ra * v_out_alpha;
                 // contribution from background pixel
-                v_alpha += -T_final * ra * background.x * v_out.x;
-                v_alpha += -T_final * ra * background.y * v_out.y;
-                v_alpha += -T_final * ra * background.z * v_out.z;
+                v_alpha += -T_final * ra * (*background).x * v_out.x;
+                v_alpha += -T_final * ra * (*background).y * v_out.y;
+                v_alpha += -T_final * ra * (*background).z * v_out.z;
                 // update the running sum
                 buffer.x += rgb.x * fac;
                 buffer.y += rgb.y * fac;
@@ -313,7 +313,7 @@ extern "C" __global__ void rasterize_backward_kernel(
             warpSum2(v_xy_local, warp);
             warpSum(v_opacity_local, warp);
             if (warp.thread_rank() == 0) {
-                int32_t g = id_batch[t];
+                int64_t g = id_batch[t];
                 float* v_rgb_ptr = (float*)(v_rgb);
                 atomicAdd(v_rgb_ptr + 3*g + 0, v_rgb_local.x);
                 atomicAdd(v_rgb_ptr + 3*g + 1, v_rgb_local.y);

@@ -114,11 +114,10 @@ pub fn map_gaussian_to_intersects(
         - **gaussian_ids** (candle::Tensor): Tensor that maps isect_ids back to cum_tiles_hit.
     */
 
-
     let (xys_storage,xys_layout) = xys.storage_and_layout();
-    let xys_storage: candle::CudaStorage = to_cuda_storage(&xys_storage, &xys_layout).unwrap();
+    let xys_storage: candle::CudaStorage = to_cuda_storage(&xys_storage, &xys_layout).unwrap();    
     let (depths_storage,depths_layout) = depths.storage_and_layout();
-    let depths_storage: candle::CudaStorage = to_cuda_storage(&depths_storage, &depths_layout).unwrap();
+    let depths_storage: candle::CudaStorage = to_cuda_storage(&depths_storage, &depths_layout).unwrap();  
     let (radii_storage,radii_layout) = radii.storage_and_layout();
     let radii_storage: candle::CudaStorage = to_cuda_storage(&radii_storage, &radii_layout).unwrap();
     let (cum_tiles_hit_storage,cum_tiles_hit_layout) = cum_tiles_hit.storage_and_layout();
@@ -151,7 +150,7 @@ pub fn map_gaussian_to_intersects(
         Some((o1, o2)) => slice_radii.slice(o1..o2),
     };
 
-    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<u32>().unwrap();
+    let slice_cum_tiles_hit = cum_tiles_hit_storage.as_cuda_slice::<i64>().unwrap();
     let slice_cum_tiles_hit = match cum_tiles_hit_layout.contiguous_offsets() {
         None => candle_core::bail!("cum_tiles_hit input has to be contiguous"),
         Some((o1, o2)) => slice_cum_tiles_hit.slice(o1..o2),
@@ -222,7 +221,7 @@ pub fn get_tile_bin_edges(
     };
     let func = dev.get_or_load_func("get_tile_bin_edges",FORWARD).unwrap();
     let (tile_x,tile_y,_) = tile_bounds;
-    let dst_tile_bins = unsafe { dev.alloc::<i64>((tile_x*tile_y*2) as usize) }.w().unwrap();
+    let dst_tile_bins = unsafe { dev.alloc::<f32>((tile_x*tile_y*2) as usize) }.w().unwrap();
     let params = (num_intersects,&slice,&dst_tile_bins);
     let n_threads = 1024;
     let nb_block = (num_intersects + n_threads - 1 )/n_threads ;
@@ -233,7 +232,7 @@ pub fn get_tile_bin_edges(
     };
     unsafe { func.launch(cfg, params) }.w().unwrap();
     let tile_bins_storage = candle::CudaStorage::wrap_cuda_slice(dst_tile_bins,dev);
-    let tile_bins = from_storage(candle_core::Storage::Cuda(tile_bins_storage),Shape::from_dims(&[(tile_x*tile_y) as usize,2]), BackpropOp::none(),false);
+    let tile_bins = from_storage(candle_core::Storage::Cuda(tile_bins_storage),Shape::from_dims(&[(tile_x*tile_y) as usize,2]), BackpropOp::none(),false).contiguous()?;
     
 
     Ok(tile_bins)
@@ -318,9 +317,14 @@ pub fn compute_cumulative_intersects(
     */
     let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F64)?;
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
-    let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::U32)?;
-    let num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<u32>().unwrap() as usize;
-    // suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
+    let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::I64)?;
+    let intermed_recup = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap();
+    let mut num_intersects:usize;
+    if intermed_recup.rank()==0{
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<i64>().unwrap() as usize;
+    } else {
+        num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<i64>().unwrap()[0] as usize;
+    }// suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
     Ok((num_intersects,cum_tiles_hit))
 }
 
