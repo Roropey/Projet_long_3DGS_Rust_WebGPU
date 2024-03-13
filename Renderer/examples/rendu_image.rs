@@ -4,10 +4,10 @@ use projetLong3DGaussianSplatting::{
     renderer::{Configuration, DepthSorting, Renderer},
     scene::Scene,
 };
-use std::{env, fs::File};
+use std::fs::File;
 
-async fn run(path:&str) {
-    let file = File::open(env::args().nth(1).unwrap()).unwrap();
+async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
+    let file = File::open(path_ply).unwrap();
     let instance = wgpu::Instance::default();
 
     let adapter = instance
@@ -44,7 +44,7 @@ async fn run(path:&str) {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
-    let (cameras_intrinsics,cameras_extrinsic) = read_cam::read_colmap_scene_info(path);
+    let (cameras_intrinsics,cameras_extrinsic) = read_cam::read_colmap_scene_info(path_bin);
     let camera = cameras_intrinsics.get(&(1 as u64)).unwrap();
     let width = if camera.width % 64 == 0{ camera.width as u32}else {64 * (camera.width as f32/64.0).round() as u32};
 
@@ -90,14 +90,15 @@ async fn run(path:&str) {
         height: height,
         depth_or_array_layers: 1,};
 
-    println!("nb_im{:?}", cameras_extrinsic.keys());
+    println!("rendering");
     for i in cameras_extrinsic.keys() {
+        println!("Image {}",i);
         let (world_view_transform,projection_matrix,camera_center,FoVy,FoVx) = read_cam::compute_matrix(&cameras_intrinsics,&cameras_extrinsic ,i );
         let output_buffer = renderer.render_frame( &device, &mut queue, &texture, viewport_size,&scene, world_view_transform,projection_matrix,camera_center,FoVy,FoVx);
 
         let img = to_image(&device, &output_buffer, texture.width(), texture.height()).await;
 
-        img.save(format!("erreur/image{}.jpg", i)).unwrap();
+        img.save(format!("{}/image{}.jpg",output_path, i)).unwrap();
     }
     print!("ok");
 
@@ -153,7 +154,7 @@ async fn to_image(
 
 
 fn main() {
-    pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\lefaucheux_7mm"));
+    pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\lefaucheux_7mm","point_cloud_gun.ply","test2\\"));
     //pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\tandt\\train"));
     //pollster::block_on(run("C:\\3DGS\\gaussian-splatting\\tandt_db\\synthetic_truck"));
 

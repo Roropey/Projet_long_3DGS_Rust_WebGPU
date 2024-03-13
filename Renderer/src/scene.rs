@@ -44,7 +44,6 @@ impl Scene {
     /// Constructs a new [Scene] and allocates memory for it
     pub fn new(device: &wgpu::Device, renderer: &Renderer, mut splat_count: usize) -> Self {
         splat_count = splat_count.min(renderer.config.max_splat_count);
-        println!("splat_count : {}", splat_count);
         let splat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (splat_count * std::mem::size_of::<Splat>()) as u64,

@@ -4,17 +4,9 @@ use crate::{
     scene::{Scene, Splat},
     utils::{mat4_multiplication, mat4_transform, motor3d_to_mat4, perspective_projection, transmute_slice,read_and_print_radii_buffer},
 };
-use geometric_algebra::{
-    ppga3d::{Motor, Point},
-    Inverse,
-};
+use geometric_algebra::ppga3d::Point;
 use wgpu::util::DeviceExt;
-use std::fs::File;
-use std::io::Write;
-use std::any::Any;
-use std::path::Path;
 
-use futures::executor::block_on;
 
 
 /// Selects how splats are sorted by their distance to the camera
@@ -424,26 +416,23 @@ impl Renderer {
         queue: &mut wgpu::Queue,
         texture: &wgpu::Texture,
         viewport_size: wgpu::Extent3d,
-        //camera_motor: Motor,
         scene: &Scene,
         view_matrix: [Point; 4], 
         projection_matrix : [Point; 4], 
         camera_matrix : [Point; 4], 
-        FoVy : f64, 
-        FoVx : f64
+        fo_vy : f64, 
+        fo_vx : f64
     )-> wgpu::Buffer{
 
-        let field_of_view_y = FoVy as f32; 
-        let field_of_view_x = FoVx as f32; 
+        let field_of_view_y = fo_vy as f32; 
+        let field_of_view_x = fo_vx as f32; 
         let view_height = (field_of_view_y * 0.5).tan() as f32;
         let view_width = (field_of_view_x * 0.5).tan() as f32;
 
         let view_projection_matrix = mat4_multiplication(&projection_matrix, &view_matrix);
 
         let mut splat_count = scene.splat_count;
-        println!("{}",splat_count);
         let frame_view = &texture.create_view(&wgpu::TextureViewDescriptor::default());
-        println!("{}",scene.splat_buffer.size());
         if matches!(self.config.depth_sorting, DepthSorting::Cpu) {
             let mut entries: Vec<(u32, u32)> = (0..scene.splat_count)
                 .filter_map(|splat_index| {
