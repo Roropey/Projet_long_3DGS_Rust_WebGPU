@@ -1,8 +1,8 @@
 use super::cuda_kernels::BACKWARD;
 use super::cuda_kernels::FORWARD;
-use candle_core::backend::BackendDevice;
+
 use candle_core::backend::BackendStorage;
-use candle_core::cuda_backend::cudarc::driver::CudaFunction;
+
 use candle_core::cuda_backend::cudarc::driver::{
     CudaSlice, CudaView, DeviceRepr, LaunchAsync, LaunchConfig,
 };
@@ -12,7 +12,7 @@ use candle_core::tensor::from_storage;
 use candle_core::CpuStorage;
 use candle_core::CudaStorage;
 use candle_core::{CustomOp2, CustomOp3};
-use candle_core::Device;
+
 use candle_core::Tensor;
 use candle_core::{Layout, Result, Shape};
 
@@ -58,26 +58,18 @@ impl ProjectGaussians {
         Shape,
     )> {
         
-        /* println!("Layout de means3d : {:#?}", means3d_layout);
-        println!("Layout de scale : {:#?}", scale_layout);
-        println!("Layout de quats : {:#?}", quats_layout);
-        println!("Layout de viewmat : {:#?}", viewmat_layout);
-        println!("Layout de projmat : {:#?}", projmat_layout); */
 
 
-        //Surement d'autre verif à faire dans le code pour voir si les inputs sont bon (taille, rank, etc...)
         let devm3d = means3d_storage.device().clone();
 
         let dev = devm3d;
 
-        //println!("getting slices");
         let slice_m3d = means3d_storage.as_cuda_slice::<f32>()?;
         let slice_sc = scale_storage.as_cuda_slice::<f32>()?;
         let slice_q = quats_storage.as_cuda_slice::<f32>()?;
         let slice_view = viewmat_storage.as_cuda_slice::<f32>()?;
         let slice_proj = projmat_storage.as_cuda_slice::<f32>()?;
 
-        //println!("slice creation");
         let slice_m3d = match means3d_layout.contiguous_offsets() {
             None => candle_core::bail!("means 3d input has to be contiguous"),
             Some((o1, o2)) => slice_m3d.slice(o1..o2),
@@ -99,12 +91,10 @@ impl ProjectGaussians {
             Some((o1, o2)) => slice_proj.slice(o1..o2),
         };
 
-        //println!("loading kernel");
-        let func = dev.get_or_load_func("project_gaussians_forward_kernel", FORWARD)?; //Cette partie de binding n'est pas fonctionnelle, il faut la revoir
+        let func = dev.get_or_load_func("project_gaussians_forward_kernel", FORWARD)?;
         let num_points = means3d_layout.shape().dims();
         let num_points = num_points[0];
 
-        //println!("allocating memory for output tensors");
         let dst_cov3d = unsafe { dev.alloc::<f32>(num_points * 6) }.w()?;
         let dst_xys_d = unsafe { dev.alloc::<f32>(num_points * 2) }.w()?;
         let dst_depth = unsafe { dev.alloc::<f32>(num_points) }.w()?;
@@ -113,7 +103,6 @@ impl ProjectGaussians {
         let dst_compensation = unsafe { dev.alloc::<f32>(num_points) }.w()?;
         let dst_num_tiles_hit = unsafe { dev.alloc::<i64>(num_points) }.w()?;
 
-        //println!("creating params for kernel launch");
         let params: &mut [_] = &mut [
             num_points.as_kernel_param(),
             (&slice_m3d).as_kernel_param(),
@@ -151,10 +140,8 @@ impl ProjectGaussians {
             shared_mem_bytes: 0,
         };
 
-        println!("Launching project forward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
-        //println!("Wrapping output tensors");
         let dst_cov3d = candle_core::CudaStorage::wrap_cuda_slice(dst_cov3d, dev);
 
         let dev = dst_cov3d.device().clone();
@@ -175,7 +162,6 @@ impl ProjectGaussians {
         let dev = dst_compensation.device().clone();
         let dst_num_tiles_hit = candle_core::CudaStorage::wrap_cuda_slice(dst_num_tiles_hit, dev);
 
-        //println!("Returning output tensors");
         Ok((
             dst_cov3d,
             Shape::from_dims(&[num_points, 6]),
@@ -197,7 +183,7 @@ impl ProjectGaussians {
     }
 
     //dummy fwd qui va renvoyer des tenseurs à 0
-    fn dummy_fwd(
+    fn _dummy_fwd(
         &self,
         means3d_storage: &candle_core::CudaStorage,
         means3d_layout: &Layout,
@@ -262,13 +248,6 @@ impl ProjectGaussians {
     }
 }
 
-fn get_dev(tensor: &Tensor) -> Result<CudaDevice> {
-    let (storage, layout) = tensor.storage_and_layout();
-    let storage = super::customop::to_cuda_storage(&storage, &layout)?;
-    let dev = storage.device().clone();
-    Ok(dev)
-}
-
 fn get_cuda_slice_f32<'a>(
     cuda_storage: &'a CudaStorage,
     layout: Layout,
@@ -293,17 +272,6 @@ fn get_cuda_slice_i64<'a>(
     Ok(cuda_slice)
 }
 
-fn get_cuda_slice_u32<'a>(
-    cuda_storage: &'a CudaStorage,
-    layout: Layout,
-) -> Result<CudaView<'a, i64>> {
-    let cuda_slice = cuda_storage.as_cuda_slice::<i64>()?;
-    let cuda_slice = match layout.contiguous_offsets() {
-        None => candle_core::bail!("input frome {:#?} has to be contiguous", layout),
-        Some((o1, o2)) => cuda_slice.slice(o1..o2),
-    };
-    Ok(cuda_slice)
-}
 
 fn to_tensor(slice: CudaSlice<f32>, dev: CudaDevice, shape: Shape) -> Result<Tensor> {
     let storage = candle_core::CudaStorage::wrap_cuda_slice(slice, dev);
@@ -325,8 +293,8 @@ impl CustomOp2 for ProjectGaussians {
         &self,
         s1: &CpuStorage,
         l1: &Layout,
-        s2: &CpuStorage,
-        l2: &Layout,
+        _s2: &CpuStorage,
+        _l2: &Layout,
     ) -> Result<(CpuStorage, Shape)>{
         Ok((s1.try_clone(l1)?, l1.shape().clone()))
     }
@@ -341,7 +309,6 @@ impl CustomOp2 for ProjectGaussians {
     ) -> Result<(Option<Tensor>, Option<Tensor>)> {
         let num_points = _arg1.shape().dims();
         let num_points = num_points[0];
-        println!("num_points dans project backward: {:#?}", num_points);
 
         let means3d = _arg1.narrow(1, 0, 3)?;
         let means3d = means3d.contiguous()?;
@@ -355,7 +322,6 @@ impl CustomOp2 for ProjectGaussians {
         let viewmat = _arg2.narrow(1,4,4)?;
         let viewmat = viewmat.contiguous()?;
 
-        //println!("on est par ici");
 
         let (storage, layout) = means3d.storage_and_layout();
         let storage = super::customop::to_cuda_storage(&storage, &layout)?;
@@ -379,7 +345,6 @@ impl CustomOp2 for ProjectGaussians {
 
         let (storage, layout) = quats.storage_and_layout();
 
-        //println!("par exemple, le layout de quats est {:#?}", layout);
 
         let cuda_storage = super::customop::to_cuda_storage(&storage, &layout)?;
         let slice_quats = get_cuda_slice_f32(&cuda_storage, layout.clone())?;
@@ -456,15 +421,12 @@ impl CustomOp2 for ProjectGaussians {
         ];
 
 
-        println!("Launching project backward kernel");
         let func = dev.get_or_load_func("project_gaussians_backward_kernel", BACKWARD)?;
 
-        let n_threads = 256; //TODO : voir si on peut le mettre en argument
+        let n_threads = 256; 
         let n_blocks = (num_points + n_threads - 1) / n_threads;
         let n_threads = n_threads as u32;
         let n_blocks = n_blocks as u32;
-        println!("n_threads : {:#?}", n_threads);
-        println!("n_blocks : {:#?}", n_blocks);
         let cfg = LaunchConfig {
             grid_dim: (n_blocks, 1, 1),
             block_dim: (n_threads, 1, 1),
@@ -531,7 +493,6 @@ impl RasterizeGaussians {
         Shape,
         candle_core::CudaStorage,
         Shape)>{
-        //println!("Start fwd");
         let dev = gaussian_ids_sorted_storage.device().clone();
         let gaussian_ids_sorted_slice = get_cuda_slice_i64(&gaussian_ids_sorted_storage, gaussian_ids_sorted_layout.clone())?;
         let tile_bins_slice = get_cuda_slice_f32(&tile_bins_storage, tile_bins_layout.clone())?;
@@ -544,17 +505,9 @@ impl RasterizeGaussians {
         let background_storage = super::customop::to_cuda_storage(&background_storage, &background_layout)?;
         let background_slice = get_cuda_slice_f32(&background_storage, background_layout.clone())?;
         
-        /* println!("Layout de gaussian_ids_sorted : {:#?}", gaussian_ids_sorted_layout);
-        println!("Layout de tile_bins : {:#?}", tile_bins_layout);
-        println!("Layout de xys : {:#?}", xys_layout);
-        println!("Layout de conics : {:#?}", conics_layout);
-        println!("Layout de colors : {:#?}", colors_layout);
-        println!("Layout de opacity : {:#?}", opacity_layout);
-        println!("Layout de background : {:#?}", background_layout); */
 
 
 
-        //println!("get func");
         let func = if self.not_nd {
             dev.get_or_load_func("rasterize_forward", FORWARD)?
         } else {
@@ -562,7 +515,7 @@ impl RasterizeGaussians {
         };
         
         let dst_out_img = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1 * self.channels) as usize) }.w()?;
-        let dst_final_Ts = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1) as usize) }.w()?;
+        let dst_final_ts = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1) as usize) }.w()?;
         let dst_final_index = unsafe { dev.alloc::<f32>((self.img_size.0 * self.img_size.1) as usize) }.w()?;
         let param_norm = &mut [
         self.tile_bounds.0.as_kernel_param(),
@@ -577,7 +530,7 @@ impl RasterizeGaussians {
         (&conics_slice).as_kernel_param(),
         (&colors_slice).as_kernel_param(),
         (&opacity_slice).as_kernel_param(),
-        (&dst_final_Ts).as_kernel_param(),
+        (&dst_final_ts).as_kernel_param(),
         (&dst_final_index).as_kernel_param(),
         (&dst_out_img).as_kernel_param(),
         (&background_slice).as_kernel_param()
@@ -596,32 +549,26 @@ impl RasterizeGaussians {
         (&conics_slice).as_kernel_param(),
         (&colors_slice).as_kernel_param(),
         (&opacity_slice).as_kernel_param(),
-        (&dst_final_Ts).as_kernel_param(),
+        (&dst_final_ts).as_kernel_param(),
         (&dst_final_index).as_kernel_param(),
         (&dst_out_img).as_kernel_param(),
         (&background_slice).as_kernel_param()
         ];
         
         let params: &mut [_] = if self.not_nd { param_norm } else {param_nd};
-        // let n_threads = 256; //TODO : voir si on peut le mettre en argument
-        // let n_blocks = (num_points + n_threads - 1) / n_threads;
-        // let n_threads = n_threads as u32;
-        // let n_blocks = n_blocks as u32;
         let cfg = LaunchConfig {
             grid_dim: self.tile_bounds,
             block_dim: (self.block_width, self.block_width, 1),
             shared_mem_bytes: 0,
         };
 
-        println!("Launching rasterize forward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
-        //println!("Wrapping output tensors");
-        let dst_final_Ts = candle_core::CudaStorage::wrap_cuda_slice(dst_final_Ts, dev.clone());
+        let dst_final_ts = candle_core::CudaStorage::wrap_cuda_slice(dst_final_ts, dev.clone());
         let dst_final_index = candle_core::CudaStorage::wrap_cuda_slice(dst_final_index, dev.clone());
         let dst_out_img = candle_core::CudaStorage::wrap_cuda_slice(dst_out_img, dev);
         Ok((
-            dst_final_Ts,
+            dst_final_ts,
             Shape::from_dims(&[self.img_size.1 as usize, self.img_size.0 as usize]),
             dst_final_index,
             Shape::from_dims(&[self.img_size.1 as usize, self.img_size.0 as usize]),
@@ -640,10 +587,10 @@ impl CustomOp3 for RasterizeGaussians {
             &self,
             s1: &CpuStorage,
             l1: &Layout,
-            s2: &CpuStorage,
-            l2: &Layout,
-            s3: &CpuStorage,
-            l3: &Layout,
+            _s2: &CpuStorage,
+            _l2: &Layout,
+            _s3: &CpuStorage,
+            _l3: &Layout,
         ) -> Result<(CpuStorage, Shape)> {
             Ok((s1.try_clone(l1)?, l1.shape().clone()))
         
@@ -656,12 +603,6 @@ impl CustomOp3 for RasterizeGaussians {
             _res: &Tensor,
             _grad_res: &Tensor,
         ) -> Result<(Option<Tensor>, Option<Tensor>, Option<Tensor>)> {
-
-        println!("Tensor_gauss shape : {:#?}", tensor_gauss.shape());
-        println!("Gaussians_ids_sorted shape : {:#?}", gaussians_ids_sorted.shape());
-        println!("Tile_bins shape : {:#?}", tile_bins.shape());
-        println!("Res shape : {:#?}", _res.shape());
-        println!("Grad_res shape : {:#?}", _grad_res.shape());
 
         let xys = tensor_gauss.narrow(1, 0, 2)?;
         let xys = xys.contiguous()?;
@@ -699,8 +640,8 @@ impl CustomOp3 for RasterizeGaussians {
         
         let v_out_img = _grad_res.narrow(2, 0, self.channels as usize)?;
         let v_out_img = v_out_img.contiguous()?;
-        let final_Ts = _res.narrow(2, self.channels as usize, 1)?;
-        let final_Ts = final_Ts.squeeze(2)?.contiguous()?;
+        let final_ts = _res.narrow(2, self.channels as usize, 1)?;
+        let final_ts = final_ts.squeeze(2)?.contiguous()?;
         let final_index = _res.narrow(2, self.channels as usize + 1, 1)?;
         let final_index = final_index.squeeze(2)?.contiguous()?;
         let v_out_alpha = _grad_res.narrow(2, self.channels as usize + 2, 1)?;
@@ -709,9 +650,9 @@ impl CustomOp3 for RasterizeGaussians {
         let (v_out_img_st, v_out_img_l) = v_out_img.storage_and_layout();
         let v_out_img_st = super::customop::to_cuda_storage(&v_out_img_st, &v_out_img_l)?;
         let slice_v_out_img = get_cuda_slice_f32(&v_out_img_st, v_out_img_l.clone())?;
-        let (final_Ts_st, final_Ts_l) = final_Ts.storage_and_layout();
-        let final_Ts_st = super::customop::to_cuda_storage(&final_Ts_st, &final_Ts_l)?;
-        let slice_final_Ts = get_cuda_slice_f32(&conics_st, conics_l.clone())?;
+        let (final_ts_st, final_ts_l) = final_ts.storage_and_layout();
+        let _final_ts_st = super::customop::to_cuda_storage(&final_ts_st, &final_ts_l)?;
+        let slice_final_ts = get_cuda_slice_f32(&conics_st, conics_l.clone())?;
         let (final_index_st, final_index_l) = final_index.storage_and_layout();
         let final_index_st = super::customop::to_cuda_storage(&final_index_st, &final_index_l)?;
         let slice_final_index = get_cuda_slice_f32(&final_index_st, final_index_l.clone())?;
@@ -743,7 +684,7 @@ impl CustomOp3 for RasterizeGaussians {
             (&slice_colors).as_kernel_param(),
             (&slice_opacity).as_kernel_param(),
             (&slice_background).as_kernel_param(),
-            (&slice_final_Ts).as_kernel_param(),
+            (&slice_final_ts).as_kernel_param(),
             (&slice_final_index).as_kernel_param(),
             (&slice_v_out_img).as_kernel_param(),
             (&slice_v_out_alpha).as_kernel_param(),
@@ -767,7 +708,7 @@ impl CustomOp3 for RasterizeGaussians {
                 (&slice_colors).as_kernel_param(),
                 (&slice_opacity).as_kernel_param(),
                 (&slice_background).as_kernel_param(),
-                (&slice_final_Ts).as_kernel_param(),
+                (&slice_final_ts).as_kernel_param(),
                 (&slice_final_index).as_kernel_param(),
                 (&slice_v_out_img).as_kernel_param(),
                 (&slice_v_out_alpha).as_kernel_param(),
@@ -783,7 +724,6 @@ impl CustomOp3 for RasterizeGaussians {
             shared_mem_bytes: 0,
         };
 
-        println!("Launching rasterize backward kernel");
         unsafe { func.launch(cfg, params) }.w()?;
 
         let v_xy = to_tensor(
@@ -980,14 +920,5 @@ mod test {
     
     }
 
-    /* #[test]
-    #[ignore]
-    fn test_bwd(){
-        let pdev = CudaDevice::new(0);
-        //Defininf every tensor that will be part of _arg1 :
-        let means3d = Tensor::from_shape(vec![1, 3], &vec![0.0, 0.0, 0.0]).unwrap();
-        let scales = Tensor::from_shape(vec![1, 3], &vec![0.0, 0.0, 0.0]).unwrap();
-        let quats = Tensor::from_shape(vec![1, 4], &vec![0.0, 0.0, 0.0, 0.0]).unwrap();
-        
-    } */
+    
 }

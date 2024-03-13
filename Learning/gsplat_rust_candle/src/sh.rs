@@ -1,7 +1,7 @@
 use candle_core as candle;
 use candle::{CustomOp2, CudaStorage, CpuStorage, Layout, Shape, Tensor, Device};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW};
-//#[cfg(feature = "cuda")]
+#[cfg(feature = "cuda")]
 use crate::cuda::cuda_kernels::SH;
 
 
@@ -81,7 +81,7 @@ impl CustomOp2 for _SphericalHarmonicsFct{
 
     }
 
-    //#[cfg(feature = "cuda")]
+    #[cfg(feature = "cuda")]
     fn cuda_fwd(
         &self,
         s1: &CudaStorage, //coeffs
@@ -94,8 +94,6 @@ impl CustomOp2 for _SphericalHarmonicsFct{
             use candle::cuda_backend::WrapErr;
             let dev = s1.device().clone();
             let slice1 = s1.as_cuda_slice::<f64>()?;
-            //Copie le slice sur le host (GPU -> CPU)
-            //let slice1 = dev.sync_reclaim(cuda_slice.clone()).unwrap();
             // Vérification contiguous
             let slice1 = match l1.contiguous_offsets() {
                 None => candle::bail!("input has to be contiguous"),
@@ -136,8 +134,6 @@ impl CustomOp2 for _SphericalHarmonicsFct{
     }
 }
 
-// Ne voyant pas comment appeler la fonction cuda en codage "normal" (avec les tensors),
-// décide d'utiliser le forward d'un CustomOp2 pour reproduire l'appel de fonction trouver en exemple dans Candle
 struct _SphericalHarmonics_bwd(usize,usize,usize,usize,usize,usize);
 
 impl CustomOp2 for _SphericalHarmonics_bwd{
@@ -168,7 +164,6 @@ impl CustomOp2 for _SphericalHarmonics_bwd{
             let dev = s1.device.clone();
             let slice1 = s1.as_cuda_slice::<f64>()?;
             //Copie le slice sur le host (GPU -> CPU)
-            //let slice1 = dev.sync_reclaim(cuda_slice.clone()).unwrap();
             // Vérification contiguous
             let slice1 = match l1.contiguous_offsets() {
                 None => candle::bail!("input has to be contiguous"),

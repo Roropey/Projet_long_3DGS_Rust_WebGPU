@@ -1,18 +1,18 @@
-use candle_core::backend::BackendDevice;
-use candle_core::cuda_backend::cudarc::driver::result::event::elapsed;
+
+
 use candle_core::{CustomOp2, CustomOp3};
 use candle_core::backend::BackendStorage;
-use candle_core::cuda_backend::{CudaDevice, WrapErr};
+
 use candle_core::op::BackpropOp;
 use candle_core::op::Op;
 use candle_core::tensor::from_storage;
-use candle_core::Device;
+
 use candle_core::Result;
-use candle_core::Shape;
+
 use candle_core::Storage;
 use candle_core::Tensor;
-use candle_core::TensorId;
-use std::sync::{Arc, RwLock};
+
+use std::sync::Arc;
 #[path = "../utils.rs"] mod utils;
 
 pub(crate) fn to_cuda_storage(
@@ -73,7 +73,7 @@ pub(crate) fn to_cuda_storage(
 /// Cette fonction peut renvoyer une erreur si les tensors fournis ne sont pas conformes aux attentes
 /// ou si la projection ne peut pas être réalisée pour une autre raison. */
 
-pub fn ProjectGaussians(
+pub fn project_gaussians(
     means3d: &candle_core::Tensor,
     scales: &candle_core::Tensor,
     glob_scale: f32,
@@ -112,14 +112,10 @@ pub fn ProjectGaussians(
     }
     let tensor_in = Tensor::cat(&a, 1)?;
     let tensor_in = tensor_in.contiguous()?;
-    let (_,layout) = tensor_in.storage_and_layout();
-    //println!("layout de tensor_in : {:#?}", layout);
-    //println!("should track op : {}", tensor_in.track_op());
+    let (_,_layout) = tensor_in.storage_and_layout();
     let projview = Tensor::cat(&[projmat, viewmat], 1)?;
     let projview = projview.contiguous()?;
-    let (_,projview_layout) = projview.storage_and_layout();
-    //println!("should track op : {}", projview.track_op());
-    //println!("layout de projview : {:#?}", projview_layout);
+    let (_,_projview_layout) = projview.storage_and_layout();
     let c = super::bindings::ProjectGaussians {
         glob_scale,
         fx,
@@ -174,7 +170,6 @@ pub fn ProjectGaussians(
         projmat_storage,
         projmat_layout,
     )?;
-    //println!("on est sorti de la fonction de bindings qui appelle cuda");
 
     let tensor_cov3d = from_storage(
         candle_core::Storage::Cuda(storage_cov3d),
@@ -219,10 +214,8 @@ pub fn ProjectGaussians(
         false,
     );
 
-    //println!("Cov3d avant le cat : {}", tensor_cov3d);
 
-    let (_, tensor_cov3d_layout) = tensor_cov3d.storage_and_layout();
-    //println!("layout de cov3d : {:#?}", tensor_cov3d_layout);
+    let (_, _tensor_cov3d_layout) = tensor_cov3d.storage_and_layout();
     //Il a fallu modifier le type de radii (from i32 to f32) dans le kernel cuda, puisque il le faut pour la retropropagation, et il faut que tout ai le même type pour cat.
     let tensortot = Tensor::cat(
         &[
@@ -236,40 +229,21 @@ pub fn ProjectGaussians(
         1,
     )?;
 
-    //println!("tensortot apres cat : {}", tensortot);
-
     //réécriture de from_storage et copy
     let shape = tensortot.shape();
-
-    //println!("shape : {:#?}", shape);
 
     let tensortot = tensortot.contiguous()?;
 
     let (storage, layout) = tensortot.storage_and_layout();
     let storage = storage.try_clone(layout)?;
 
-    //println!("layout de tensortot: {:#?}", layout);
-
     let structc = Arc::new(Box::new(c) as Box<dyn CustomOp2 + Send + Sync>);
 
     let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); 
     
     let tensor_out = from_storage(storage, shape, op, false);
-    /* println!("should track op : {}", tensor_out.track_op());
-    match tensor_out.op() {
-        Some(op) => println!("some op fw"),
-        None => println!("no op fw")
-    }
 
-    println!("tensor_out id : {:?}", tensor_out.id()); */
-
-    let (_, tensor_out_layout) = tensor_out.storage_and_layout();
-    //println!("layout de tensor_out : {:#?}", tensor_out_layout);
-
-    //println!("tensor_out apres from_storage : {}", tensor_out);
-
-    //println!("tensour_out is variable : {}", tensor_out.is_variable());
-    //println!("tensor_in is variable : {}", tensor_in.is_variable());
+    let (_, _tensor_out_layout) = tensor_out.storage_and_layout();
     
     //la backpropagation va marcher puisque narrow qui va associer l'opération Backprop narrow aux tenseurs de sorte à ce que les gradients des tenseurs
     //de sortie reforme un tenseur unique de ces gradient, qui pourra etre rentré dans le backward de ProjectGaussian (le struct) qu'on re splitera pour donner au kernel cuda
@@ -280,7 +254,6 @@ pub fn ProjectGaussians(
 
     let cov3d = tensor_out.narrow(1, 0, 6)?.contiguous()?;
 
-    //println!("cov3d apres narrow: {}", cov3d);
 
     
 
@@ -303,7 +276,7 @@ pub fn ProjectGaussians(
 }
 
 
-pub fn RasterizeGaussians(
+pub fn rasterize_gaussians(
     xys: &Tensor,
     depths: &Tensor,
     radii: &Tensor,
@@ -321,7 +294,7 @@ pub fn RasterizeGaussians(
     let background = background.unwrap_or(Tensor::ones(colors.dim(candle_core::D::Minus1)?, candle_core::DType::F32, colors.device()).unwrap());
     let return_alpha = return_alpha.unwrap_or(false);
     assert!(background.shape().dims()[0] == colors.shape().dims()[colors.shape().rank()-1], "Incorrect shape of background color tensor, expected shape {}",colors.shape().dims()[colors.shape().rank()-1]);
-    //println!("xys.shape() : {:#?}", xys.shape());
+
     assert!(xys.shape().rank()==2 && xys.shape().dims()[1] == 2, "xys, must have dimensions (N,2)");
     assert!(colors.shape().rank() == 2, "colors must have dimensions (N,D)");
     let num_points = xys.dim(0)?;
@@ -333,11 +306,10 @@ pub fn RasterizeGaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
-    println!("num_intersects : {}", num_intersects);
-    let (out_img, out_alpha) =  /* if num_intersects < 1 {
+    let (out_img, out_alpha) = if num_intersects < 1 {
         (background.unsqueeze(0)?.unsqueeze(0)?.repeat((img_height as usize,img_width as usize,1))?,
         Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
-    } else  */ {
+    } else  {
         let (
             _isect_ids_unsorted,
             _gaussians_ids_unsorted,
@@ -371,14 +343,9 @@ pub fn RasterizeGaussians(
                 arg.unsqueeze(0)?;
             }
         }
-        /* println!("conics.shape() : {:#?}", conics.shape());
-        println!("colors.shape() : {:#?}", colors.shape());
-        println!("opacity.shape() : {:#?}", opacity.shape()); */
         let tensor_gauss = Tensor::cat(&a, 1)?;
         let tensor_gauss = tensor_gauss.contiguous()?;
-        let (_,layout) = tensor_gauss.storage_and_layout();
-        /* println!("layout de tensor_in : {:#?}", layout);
-        println!("should track op : {}", tensor_gauss.track_op()); */
+        let (_,_layout) = tensor_gauss.storage_and_layout();
 
         let c = super::bindings::RasterizeGaussians{
             not_nd,
@@ -404,10 +371,9 @@ pub fn RasterizeGaussians(
         let opacity_storage = to_cuda_storage(&opacity_storage, &opacity_layout)?;
 
 
-        println!("on va forward rasterize");
         let (
-            storage_final_Ts,
-            shape_final_Ts,
+            storage_final_ts,
+            shape_final_ts,
             storage_final_index,
             shape_final_index,
             storage_out_img,
@@ -426,9 +392,9 @@ pub fn RasterizeGaussians(
             opacity_storage,
             opacity_layout
         )?;
-        let tensor_final_Ts = from_storage(
-            candle_core::Storage::Cuda(storage_final_Ts),
-            shape_final_Ts,
+        let tensor_final_ts = from_storage(
+            candle_core::Storage::Cuda(storage_final_ts),
+            shape_final_ts,
             BackpropOp::none(),
             false,
         );
@@ -445,59 +411,39 @@ pub fn RasterizeGaussians(
             false,
         );
         let out_alpha = if return_alpha {
-            tensor_final_Ts.affine(-1.0,1.0).unwrap()
+            tensor_final_ts.affine(-1.0,1.0).unwrap()
         } else {
-            Tensor::zeros(tensor_final_Ts.shape(),candle_core::DType::F32,tensor_final_Ts.device())?
+            Tensor::zeros(tensor_final_ts.shape(),candle_core::DType::F32,tensor_final_ts.device())?
         };
-        println!("Layout de out_img : {:#?}", tensor_out_img.layout());
         let tensortot = Tensor::cat(
             &[
                 tensor_out_img,
-                tensor_final_Ts.unsqueeze(2)?,
+                tensor_final_ts.unsqueeze(2)?,
                 tensor_final_index.unsqueeze(2)?,
                 out_alpha.unsqueeze(2)?,
             ],
             2,
         )?;          
 
-        //println!("tensortot apres cat : {}", tensortot);
-
         //réécriture de from_storage et copy
         let shape = tensortot.shape();
-
-        //println!("shape : {:#?}", shape);
 
         let tensortot = tensortot.contiguous()?;
 
         let (storage, layout) = tensortot.storage_and_layout();
         let storage = storage.try_clone(layout)?;
 
-        println!("layout de tensortot rasterize: {:#?}", layout);
 
         let structc = Arc::new(Box::new(c) as Box<dyn CustomOp3 + Send + Sync>);
 
         let op = BackpropOp::new3(&tensor_gauss,&gaussians_ids_sorted, &tile_bins, |t1,t2, t3| Op::CustomOp3(t1,t2,t3, structc.clone())); 
         
         let tensor_out = from_storage(storage, shape, op, false).contiguous()?;
-        //println!("should track op rasterize : {}", tensor_out.track_op());
-        // match tensor_out.op() {
-        //     Some(op) => println!("some op fw"),
-        //     None => println!("no op fw")
-        // }
 
-        //println!("tensor_out id : {:?}", tensor_out.id());
-
-        let (_, tensor_out_layout) = tensor_out.storage_and_layout();
-        //println!("layout de tensor_out : {:#?}", tensor_out_layout);
-
-        //println!("tensor_out apres from_storage : {}", tensor_out);
-
-        //println!("tensour_out is variable : {}", tensor_out.is_variable());
-        //println!("tensor_gauss is variable : {}", tensor_gauss.is_variable());
+        let (_, _tensor_out_layout) = tensor_out.storage_and_layout();
         
         let out_img = tensor_out.narrow(2, 0, channels as usize)?.contiguous()?;
         let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
-        println!("On a fini forward rasterize");
         (out_img,out_alpha)
     };
     if return_alpha {
@@ -557,40 +503,7 @@ mod tests {
         }
     }
 
-    /* fn check_close(a: &candle_core::Tensor, b: &candle_core::Tensor, atol: f32, rtol: f32){
-        let diff = a.sub(b)?;
-        let mut max = diff.max();
-        let mut mean = diff.mean();
-        if max < 0.0 {
-            max = -diff.min();
-            mean = -mean;
-        }
-        assert!(max <= atol,
-                "La valeur max de la différence est supérieure à la tolérance : max = {}, atol = {}",
-                max,
-                atol);
-        assert!(mean <= rtol,
-                "La valeur moyenne de la différence est supérieure à la tolérance : mean = {}, rtol = {}",
-                mean,
-                rtol);
-
-    } */
-
-    /*def projection_matrix(fx, fy, W, H, n=0.01, f=1000.0):
-    return torch.tensor(
-        [
-            [2.0 * fx / W, 0.0, 0.0, 0.0],
-            [0.0, 2.0 * fy / H, 0.0, 0.0],
-            [0.0, 0.0, (f + n) / (f - n), -2 * f * n / (f - n)],
-            [0.0, 0.0, 1.0, 0.0],
-        ],
-        device=device,
-    )
-
-    using the results from the python code test_project_gaussians_fwd_small() in order to test
-    using only 2 points the rust implementation of the function
-
-     */
+    
 
     #[test]
     fn test_project_gaussians_fwd_small() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -636,7 +549,7 @@ mod tests {
         let BLOCK_X = 16;
         let BLOCK_Y = 16;
         let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
-        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = project_gaussians(
             &means3d,
             &scales,
             glob_scale,
@@ -652,52 +565,7 @@ mod tests {
             tile_bounds,
             Some(clip_thresh),
         )?;
-        //println!("on est sorti de la fonction");
-        /*cov3d:  tensor([[1., 0., 0., 1., 0., 1.],
-        [1., 0., 0., 1., 0., 1.]], device='cuda:0')
-        xys:  tensor([[255.5000, 255.5000],
-                [255.5000, 255.5000]], device='cuda:0')
-        depths:  tensor([18., 18.], device='cuda:0')
-        radii:  tensor([43, 43], device='cuda:0', dtype=torch.int32)
-        conics:  tensor([[0.0049, -0.0000, 0.0049],
-                [0.0049, -0.0000, 0.0049]], device='cuda:0')
-        compensation:  tensor([0.9985, 0.9985], device='cuda:0')
-        num_tiles_hit:  tensor([36, 36], device='cuda:0', dtype=torch.int32) */
-        /* let _python_cov3d = candle_core::Tensor::from_slice(
-            &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
-            &candle_core::Shape::from_dims(&[2, 6]),
-            &device,
-        )?;
-        let _python_xys = candle_core::Tensor::from_slice(
-            &[255.5000, 255.5000, 255.5000, 255.5000],
-            &candle_core::Shape::from_dims(&[2, 2]),
-            &device,
-        )?;
-        let _python_depths = candle_core::Tensor::from_slice(
-            &[18.0, 18.0],
-            &candle_core::Shape::from_dims(&[2]),
-            &device,
-        )?;
-        let _python_radii = candle_core::Tensor::from_slice(
-            &[43 as f32, 43 as f32],
-            &candle_core::Shape::from_dims(&[2]),
-            &device,
-        )?;
-        let _python_conics = candle_core::Tensor::from_slice(
-            &[0.0049, -0.0000, 0.0049, 0.0049, -0.0000, 0.0049],
-            &candle_core::Shape::from_dims(&[2, 3]),
-            &device,
-        )?;
-        let _python_compensation = candle_core::Tensor::from_slice(
-            &[0.9985, 0.9985],
-            &candle_core::Shape::from_dims(&[2]),
-            &device,
-        )?;
-        let _python_num_tiles_hit = candle_core::Tensor::from_slice(
-            &[36 as u32, 36 as u32],
-            &candle_core::Shape::from_dims(&[2]),
-            &device,
-        )?; */
+        
         println!("cov3d : {}", cov3d);
         println!("xys : {}", xys);
         println!("depths : {}", depths);
@@ -705,14 +573,6 @@ mod tests {
         println!("conics : {}", conics);
         println!("compensation : {}", compensation);
         println!("num_tiles_hit : {}", num_tiles_hit);
-
-        //check_close(&cov3d, &python_cov3d, 1e-5, 1e-5);
-        //check_close(&xys, &python_xys, 1e-5, 1e-5);
-        //check_close(&depths, &python_depths, 1e-5, 1e-5);
-        //check_close(&radii, &python_radii, 1e-5, 1e-5);
-        //check_close(&conics, &python_conics, 1e-5, 1e-5);
-        //check_close(&compensation, &python_compensation, 1e-5, 1e-5);
-        //check_close(&num_tiles_hit, &python_num_tiles_hit, 1e-5, 1e-5);
         Ok(())
     }
 
@@ -767,7 +627,7 @@ mod tests {
         let background = None;
         let return_alpha = None;
 
-        let (out_img, out_alpha) = RasterizeGaussians(
+        let (out_img, out_alpha) = rasterize_gaussians(
             &xys,
             &depths,
             &radii,
@@ -788,70 +648,7 @@ mod tests {
     }
     
 
-    /* #[test]
-    #[ignore]
-    fn full_test_project_gaussians_forward(){
-        let num_points = 100;
-        let means3d = candle_core::Tensor::randn((num_points, 3), &candle_core::Device::cuda(0), true);
-        let scales = candle_core::Tensor::rand((num_points, 3), &candle_core::Device::cuda(0)) + 0.2;
-        let glob_scale = 1.0;
-        let quats = candle_core::Tensor::randn((num_points, 4), &candle_core::Device::cuda(0));
-        let quats = quats / quats.norm(candle_core::Norm::L2, &[1], true);
-        let H = 512;
-        let W = 512;
-        let cx = W / 2;
-        let cy = H / 2;
-        let fx = W / 2;
-        let fy = W / 2;
-        let clip_thresh = 0.01;
-        let viewmat = candle_core::Tensor::from_data(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[4,4]));
-        let projmat = projection_matrix(fx, fy, W, H, 0.01, 1000.0);
-        let fullmat = projmat.matmul(&viewmat);
-        let BLOCK_X = 16;
-        let BLOCK_Y = 16;
-        let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
-        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(num_points, means3d, scales, glob_scale, quats, viewmat, projmat, fx, fy, cx, cy, H, W, tile_bounds, clip_thresh);
-        let masks = num_tiles_hit.gt(0);
 
-        //Ici il faudrait reussir a invoquer le code python
-        let (_cov3d, _xys, _depths, _radii, _conics, _compensation, _num_tiles_hit, _masks) = _torch_impl::project_gaussians_forward(means3d, scales, glob_scale, quats, viewmat, fullmat, (fx, fy, cx, cy), (W, H), tile_bounds, clip_thresh);
-
-        check_close(&masks, &_masks, 1e-5, 1e-5);
-        check_close(&cov3d, &_cov3d, 1e-5, 1e-5);
-        check_close(&xys, &_xys, 1e-5, 1e-5);
-        check_close(&depths, &_depths, 1e-5, 1e-5);
-        check_close(&radii, &_radii, 1e-5, 1e-5);
-        check_close(&conics, &_conics, 1e-5, 1e-5);
-        check_close(&compensation, &_compensation, 1e-5, 1e-5);
-        check_close(&num_tiles_hit, &_num_tiles_hit, 1e-5, 1e-5);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_dummy_fwd() -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let means3d = candle_core::Tensor::randn((100, 3), &candle_core::Device::cuda(0), true);
-        let scales = candle_core::Tensor::rand((100, 3), &candle_core::Device::cuda(0)) + 0.2;
-        let glob_scale = 1.0;
-        let quats = candle_core::Tensor::randn((100, 4), &candle_core::Device::cuda(0));
-        let quats = quats / quats.norm(candle_core::norm::L2, &[1], true);
-        let viewmat = candle_core::Tensor::from_data(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0.0, 0.0, 1.0], &candle_core::Shape::from_dims(&[4,4]));
-        let projmat = projection_matrix(1.0, 1.0, 512, 512, 0.01, 1000.0);
-        let fullmat = projmat.matmul(&viewmat);
-        let BLOCK_X = 16;
-        let BLOCK_Y = 16;
-        let tile_bounds = ((512 + BLOCK_X - 1) / BLOCK_X, (512 + BLOCK_Y - 1) / BLOCK_Y, 1);
-        let c = ProjectGaussians{glob_scale,1.0,1.0,1.0,1.0,512,512,(1,1,1),0.01,viewmat,projmat};
-
-        let (means3d_storage, means3d_layout) = means3d?.storage_and_layout();
-        let (scales_storage, scales_layout) = scales?.storage_and_layout();
-        let (quats_storage, quats_layout) = quats?.storage_and_layout();
-        let (viewmat_storage, viewmat_layout) = viewmat?.storage_and_layout();
-        let (projmat_storage, projmat_layout) = projmat.storage_and_layout();
-
-
-        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = c.dummy_fwd(means3d_storage, means3d_layout, scales_storage, scales_layout, quats_storage, quats_layout)?;
-        Ok(())
-    } */
     #[test]
     
     fn test_dummy_bwd_project() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -897,7 +694,7 @@ mod tests {
         let BLOCK_X = 16;
         let BLOCK_Y = 16;
         let tile_bounds = ((W + BLOCK_X - 1) / BLOCK_X, (H + BLOCK_Y - 1) / BLOCK_Y, 1);
-        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = ProjectGaussians(
+        let (cov3d, xys, depths, radii, conics, compensation, num_tiles_hit) = project_gaussians(
             &means3d,
             &scales,
             glob_scale,
@@ -1016,7 +813,7 @@ mod tests {
         let return_alpha = None;
 
 
-        let (out_img, out_alpha) = RasterizeGaussians(
+        let (out_img, out_alpha) = rasterize_gaussians(
             &xys,
             &depths,
             &radii,
