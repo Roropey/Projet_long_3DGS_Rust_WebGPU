@@ -1,15 +1,15 @@
-use candle::{CpuStorage, Device, Storage, Layout, Shape, Tensor, D, Result, tensor::from_storage, op::BackpropOp};
+use candle::{CpuStorage, Storage, Layout, Shape, Tensor, D, Result, tensor::from_storage, op::BackpropOp};
 use candle::backend::{BackendDevice,BackendStorage};
 use candle::cuda_backend::cudarc::driver::{LaunchAsync,LaunchConfig};
-use candle::cuda_backend::{WrapErr,CudaDevice};
+use candle::cuda_backend::{WrapErr};
 use candle_core as candle;
 use std::ops::Not;
-//#[cfg(feature = "cuda")]
+#[cfg(feature = "cuda")]
 use crate::cuda::cuda_kernels::{FORWARD, BINDINGS};
 
 // Fonction copié sur https://github.com/huggingface/candle/pull/1389/files
-// Argsort pour tensor à 1 dimension... A voir si ça marche dans notre cas
-// Pas trop compris pourquoi la version cuda fonctionne avec le mm code que la version CPU malgré le changement de "device" (test réalisé)
+// Argsort pour tensor à 1 dimension qui fonctionne pour notre cas
+// La version CUDA est mal propre : elle reprend la version CPU en transférant entre les deux systèmes, peut entrainé une perte de temps
 struct ArgSort;
 impl candle::CustomOp1 for ArgSort {
     fn name(&self) -> &'static str {
@@ -21,7 +21,6 @@ impl candle::CustomOp1 for ArgSort {
         storage: &CpuStorage,
         layout: &Layout,
     ) -> candle::Result<(CpuStorage, Shape)> {
-        //Verifier qu'une seule dimension (à modifier)
         if layout.shape().rank() != 1 {
             candle::bail!(
                 "input should have a single dimension, got {:?}",
@@ -42,13 +41,11 @@ impl candle::CustomOp1 for ArgSort {
         Ok((storage, layout.shape().clone()))
     }
 
-    //Version cuda mal propre : passe par host pour faire le trie...
     fn cuda_fwd(
         &self,
         storage: &candle::CudaStorage,
         layout: &Layout,
     ) -> candle::Result<(candle::CudaStorage, Shape)> {
-        //Verifier qu'une seule dimension (à modifier)
         if layout.shape().rank() != 1 {
             candle::bail!(
                 "input should have a single dimension, got {:?}",
@@ -90,7 +87,7 @@ pub fn map_gaussian_to_intersects(
     radii:&Tensor,
     cum_tiles_hit:&Tensor,
     tile_bounds:(usize,usize,usize),
-    block_size: usize
+    _block_size: usize
 ) -> Result<(Tensor,Tensor)>{
     /* Map each gaussian intersection to a unique tile ID and depth value for sorting.
 
@@ -241,7 +238,7 @@ pub fn get_tile_bin_edges(
 
 
 
-pub fn compute_cov2d_bounds(
+pub fn _compute_cov2d_bounds(
     cov2d:&Tensor
 ) -> Result<(Tensor,Tensor)>{
 
@@ -319,12 +316,12 @@ pub fn compute_cumulative_intersects(
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
     let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::I64)?;
     let intermed_recup = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap();
-    let mut num_intersects:usize;
+    let num_intersects:usize;
     if intermed_recup.rank()==0{
         num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec0::<i64>().unwrap() as usize;
     } else {
         num_intersects = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap().to_vec1::<i64>().unwrap()[0] as usize;
-    }// suppose que cum_tiles_hit n'a qu'une dimension      cum_tiles_hit[-1].item();
+    }
     Ok((num_intersects,cum_tiles_hit))
 }
 
@@ -369,7 +366,6 @@ pub fn bin_and_sort_gaussians(
     let isect_ids = isect_ids.to_dtype(candle::DType::I64)?;
     let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
     let isect_ids_sorted = isect_ids.gather(&sorted_indices,0).unwrap();
-    //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
     let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0).unwrap();
     let tile_bins = get_tile_bin_edges(num_intersects, &isect_ids_sorted, tile_bounds).unwrap();
     Ok((isect_ids, gaussian_ids, isect_ids_sorted, gaussian_ids_sorted, tile_bins))

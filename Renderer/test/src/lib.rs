@@ -50,19 +50,11 @@ impl State {
     async fn new(window: Window) -> Self {
         let size = window.inner_size();
     
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
-        });
-            
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        // State owns the window, so this should be safe.
+        });            
         let surface = unsafe { instance.create_surface(&window) }.unwrap();
-
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -70,7 +62,6 @@ impl State {
                 force_fallback_adapter: false,
             },
         ).await.unwrap();
-
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::empty(),
@@ -128,7 +119,7 @@ impl State {
             count: None,
         };
 
-        let splat_count = 3;
+        let splat_count = 4;
         let splat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("splat_buffer"),
             size: (splat_count * std::mem::size_of::<Splat>()) as u64,
@@ -308,20 +299,31 @@ impl State {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         //println!("test");
-        let mut SPLAT : Vec<Splat> = vec![[0.0; 12]; 3];  
+        let mut SPLAT : Vec<Splat> = vec![[0.0; 12]; 4];  
         SPLAT[0][8..12].copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
-        SPLAT[0][4..8].copy_from_slice(&[0.2, 0.05, 0.05, 0.1]);
-        SPLAT[0][0..2].copy_from_slice(&[0.2, 0.0]);
+        SPLAT[0][4..8].copy_from_slice(&[0.15, 0.05, 0.05, 0.1]);
+        //SPLAT[0][4..8].copy_from_slice(&[0.2, 0.0, 0.0, 0.2]);
+        //SPLAT[0][0..2].copy_from_slice(&[0.0, 0.0]);
+        SPLAT[0][0..2].copy_from_slice(&[0.0, 0.2]);
 
-        SPLAT[1][8..12].copy_from_slice(&[0.0, 1.0, 0.0, 1.0]);
+        SPLAT[1][8..12].copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
+        SPLAT[1][4..8].copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
+        SPLAT[1][0..2].copy_from_slice(&[0.0, 0.0]);
+
+        /*SPLAT[1][8..12].copy_from_slice(&[0.0, 1.0, 0.0, 1.0]);
         SPLAT[1][4..8].copy_from_slice(&[0.1, -0.01, -0.01, 0.2]);
-        SPLAT[1][0..2].copy_from_slice(&[-0.2, 0.2]);
+        SPLAT[1][0..2].copy_from_slice(&[-0.2, 0.2]);*/
 
         SPLAT[2][8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
         SPLAT[2][4..8].copy_from_slice(&[0.1, 0.2, 0.2, 0.1]);
         SPLAT[2][0..2].copy_from_slice(&[0.0, 0.0]);
 
-        let splat_index_range = 0..3;
+        SPLAT[3][8..12].copy_from_slice(&[1.0, 1.0, 1.0, 0.2]);
+        SPLAT[3][4..8].copy_from_slice(&[0.3, 0.0, 0.0, 0.3]);
+        SPLAT[3][0..2].copy_from_slice(&[0.0, 0.0]);
+
+
+        let splat_index_range = 0..4;
         self.queue.write_buffer(
             &self.splat_buffer,
             (splat_index_range.start * std::mem::size_of::<Splat>()) as u64,
@@ -378,7 +380,7 @@ impl State {
         
             render_pass.set_pipeline(&self.render_pipeline); // 2.
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..4, 0..3 as u32); // 2.
+            render_pass.draw(0..4, 0..2 as u32); // 2.
         }
         
         // submit will accept anything that implements IntoIter
