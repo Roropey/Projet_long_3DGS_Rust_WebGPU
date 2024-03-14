@@ -1,18 +1,18 @@
-
-
+use candle_core::backend::BackendDevice;
+use candle_core::cuda_backend::cudarc::driver::result::event::elapsed;
 use candle_core::{CustomOp2, CustomOp3};
 use candle_core::backend::BackendStorage;
-
+use candle_core::cuda_backend::{CudaDevice, WrapErr};
 use candle_core::op::BackpropOp;
 use candle_core::op::Op;
 use candle_core::tensor::from_storage;
-
+use candle_core::Device;
 use candle_core::Result;
-
+use candle_core::Shape;
 use candle_core::Storage;
 use candle_core::Tensor;
-
-use std::sync::Arc;
+use candle_core::TensorId;
+use std::sync::{Arc, RwLock};
 #[path = "../utils.rs"] mod utils;
 
 pub(crate) fn to_cuda_storage(
@@ -112,10 +112,10 @@ pub fn project_gaussians(
     }
     let tensor_in = Tensor::cat(&a, 1)?;
     let tensor_in = tensor_in.contiguous()?;
-    let (_,_layout) = tensor_in.storage_and_layout();
+    let (_,layout) = tensor_in.storage_and_layout();
     let projview = Tensor::cat(&[projmat, viewmat], 1)?;
     let projview = projview.contiguous()?;
-    let (_,_projview_layout) = projview.storage_and_layout();
+    let (_,projview_layout) = projview.storage_and_layout();
     let c = super::bindings::ProjectGaussians {
         glob_scale,
         fx,
@@ -215,7 +215,7 @@ pub fn project_gaussians(
     );
 
 
-    let (_, _tensor_cov3d_layout) = tensor_cov3d.storage_and_layout();
+    let (_, tensor_cov3d_layout) = tensor_cov3d.storage_and_layout();
     //Il a fallu modifier le type de radii (from i32 to f32) dans le kernel cuda, puisque il le faut pour la retropropagation, et il faut que tout ai le même type pour cat.
     let tensortot = Tensor::cat(
         &[
@@ -242,8 +242,8 @@ pub fn project_gaussians(
     let op = BackpropOp::new2(&tensor_in,&projview, |t1,t2| Op::CustomOp2(t1,t2, structc.clone())); 
     
     let tensor_out = from_storage(storage, shape, op, false);
+    let (_, tensor_out_layout) = tensor_out.storage_and_layout();
 
-    let (_, _tensor_out_layout) = tensor_out.storage_and_layout();
     
     //la backpropagation va marcher puisque narrow qui va associer l'opération Backprop narrow aux tenseurs de sorte à ce que les gradients des tenseurs
     //de sortie reforme un tenseur unique de ces gradient, qui pourra etre rentré dans le backward de ProjectGaussian (le struct) qu'on re splitera pour donner au kernel cuda
@@ -294,7 +294,7 @@ pub fn rasterize_gaussians(
     let background = background.unwrap_or(Tensor::ones(colors.dim(candle_core::D::Minus1)?, candle_core::DType::F32, colors.device()).unwrap());
     let return_alpha = return_alpha.unwrap_or(false);
     assert!(background.shape().dims()[0] == colors.shape().dims()[colors.shape().rank()-1], "Incorrect shape of background color tensor, expected shape {}",colors.shape().dims()[colors.shape().rank()-1]);
-
+    
     assert!(xys.shape().rank()==2 && xys.shape().dims()[1] == 2, "xys, must have dimensions (N,2)");
     assert!(colors.shape().rank() == 2, "colors must have dimensions (N,D)");
     let num_points = xys.dim(0)?;
@@ -306,10 +306,10 @@ pub fn rasterize_gaussians(
     let _block = (block_width,block_width,1);
     let img_size = (img_width,img_height,1);
     let (num_intersects, cum_tiles_hit)= utils::compute_cumulative_intersects(num_tiles_hit)?;
-    let (out_img, out_alpha) = if num_intersects < 1 {
+    let (out_img, out_alpha) =  /* if num_intersects < 1 {
         (background.unsqueeze(0)?.unsqueeze(0)?.repeat((img_height as usize,img_width as usize,1))?,
         Tensor::ones((img_height as usize,img_width as usize),candle_core::DType::F32,xys.device())?)
-    } else  {
+    } else  */ {
         let (
             _isect_ids_unsorted,
             _gaussians_ids_unsorted,
@@ -345,7 +345,8 @@ pub fn rasterize_gaussians(
         }
         let tensor_gauss = Tensor::cat(&a, 1)?;
         let tensor_gauss = tensor_gauss.contiguous()?;
-        let (_,_layout) = tensor_gauss.storage_and_layout();
+        let (_,layout) = tensor_gauss.storage_and_layout();
+    
 
         let c = super::bindings::RasterizeGaussians{
             not_nd,
@@ -370,7 +371,7 @@ pub fn rasterize_gaussians(
         let colors_storage = to_cuda_storage(&colors_storage, &colors_layout)?;
         let opacity_storage = to_cuda_storage(&opacity_storage, &opacity_layout)?;
 
-
+        
         let (
             storage_final_ts,
             shape_final_ts,
@@ -415,7 +416,7 @@ pub fn rasterize_gaussians(
         } else {
             Tensor::zeros(tensor_final_ts.shape(),candle_core::DType::F32,tensor_final_ts.device())?
         };
-        let tensortot = Tensor::cat(
+                let tensortot = Tensor::cat(
             &[
                 tensor_out_img,
                 tensor_final_ts.unsqueeze(2)?,
@@ -433,14 +434,14 @@ pub fn rasterize_gaussians(
         let (storage, layout) = tensortot.storage_and_layout();
         let storage = storage.try_clone(layout)?;
 
-
+        
         let structc = Arc::new(Box::new(c) as Box<dyn CustomOp3 + Send + Sync>);
 
         let op = BackpropOp::new3(&tensor_gauss,&gaussians_ids_sorted, &tile_bins, |t1,t2, t3| Op::CustomOp3(t1,t2,t3, structc.clone())); 
         
         let tensor_out = from_storage(storage, shape, op, false).contiguous()?;
 
-        let (_, _tensor_out_layout) = tensor_out.storage_and_layout();
+        let (_, tensor_out_layout) = tensor_out.storage_and_layout();
         
         let out_img = tensor_out.narrow(2, 0, channels as usize)?.contiguous()?;
         let out_alpha = tensor_out.narrow(2, channels as usize + 2, 1)?.squeeze(2)?.contiguous()?;
@@ -565,7 +566,7 @@ mod tests {
             tile_bounds,
             Some(clip_thresh),
         )?;
-        
+
         println!("cov3d : {}", cov3d);
         println!("xys : {}", xys);
         println!("depths : {}", depths);
@@ -648,7 +649,7 @@ mod tests {
     }
     
 
-
+    
     #[test]
     
     fn test_dummy_bwd_project() -> std::result::Result<(), Box<dyn std::error::Error>> {
