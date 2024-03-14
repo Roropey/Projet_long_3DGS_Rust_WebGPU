@@ -29,15 +29,15 @@ impl candle::CustomOp1 for ArgSort {
             )
         }
 
-        let slice = storage.as_slice::<f32>().unwrap();
+        let slice = storage.as_slice::<i64>().unwrap();
         // Vérification contiguous
         let src = match layout.contiguous_offsets() {
             None => candle::bail!("input has to be contiguous"),
             Some((o1, o2)) => &slice[o1..o2],
         };
         
-        let mut dst = (0..src.len() as u32).collect::<Vec<u32>>();
-        dst.sort_by(|&i, &j| src[i as usize].total_cmp(&src[j as usize]));
+        let mut dst = (0..src.len() as i64).collect::<Vec<i64>>();
+        dst.sort_by(|&i, &j| src[i as usize].cmp(&src[j as usize]));
         let storage = candle::WithDType::to_cpu_storage_owned(dst);
         Ok((storage, layout.shape().clone()))
     }
@@ -58,7 +58,7 @@ impl candle::CustomOp1 for ArgSort {
         // Récupère device
         let dev = storage.device.clone();
         //Récupère le slice mais en cuda
-        let cuda_slice = storage.as_cuda_slice::<f32>().unwrap();
+        let cuda_slice = storage.as_cuda_slice::<i64>().unwrap();
         //Copie le slice sur le host (GPU -> CPU)
         let slice = dev.sync_reclaim(cuda_slice.clone()).unwrap();
         // Vérification contiguous
@@ -66,8 +66,8 @@ impl candle::CustomOp1 for ArgSort {
             None => candle::bail!("input has to be contiguous"),
             Some((o1, o2)) => &slice[o1..o2],
         };
-        let mut dst = (0..src.len() as u32).collect::<Vec<u32>>(); // //
-        dst.sort_by(|&i, &j| src[i as usize].total_cmp(&src[j as usize]));
+        let mut dst = (0..src.len() as i64).collect::<Vec<i64>>(); // //
+        dst.sort_by(|&i, &j| src[i as usize].cmp(&src[j as usize]));
         // Met le résultat sur le GPU
         let dst_cuda = dev.htod_copy(dst).unwrap();        
         let storage = candle::CudaStorage::wrap_cuda_slice(dst_cuda,dev);
@@ -315,7 +315,7 @@ pub fn compute_cumulative_intersects(
         - **num_intersects** (int): total number of tile intersections.
         - **cum_tiles_hit** (candle::Tensor): a tensor of cumulated intersections (used for sorting).
     */
-    let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F64)?;
+    let num_tiles_hit = num_tiles_hit.to_dtype(candle::DType::F32)?;
     let cum_tiles_hit = num_tiles_hit.cumsum(0).unwrap();
     let cum_tiles_hit = cum_tiles_hit.to_dtype(candle::DType::I64)?;
     let intermed_recup = cum_tiles_hit.get(cum_tiles_hit.dim(0).unwrap()-1).unwrap();
@@ -366,9 +366,8 @@ pub fn bin_and_sort_gaussians(
     let (isect_ids, gaussian_ids )= map_gaussian_to_intersects(
         num_points, num_intersects, xys, depths, radii, cum_tiles_hit, tile_bounds, block_size
     ).unwrap();
-    let isect_ids = isect_ids.to_dtype(candle::DType::F32)?;
-    let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
     let isect_ids = isect_ids.to_dtype(candle::DType::I64)?;
+    let sorted_indices = isect_ids.apply_op1(ArgSort).unwrap();
     let isect_ids_sorted = isect_ids.gather(&sorted_indices,0).unwrap();
     //let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids); // pistes sur https://github.com/huggingface/candle/issues/1359 et https://github.com/huggingface/candle/pull/1389/files
     let gaussian_ids_sorted = gaussian_ids.gather(&sorted_indices,0).unwrap();
