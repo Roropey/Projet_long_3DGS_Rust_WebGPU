@@ -6,10 +6,17 @@ use projetLong3DGaussianSplatting::{
 };
 use std::fs::File;
 
+/*
+Function which, given the path of the binary files, 
+the ply file and a directory, generates the images corresponding to 
+those used to generate the ply file.
+*/
 async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
+    //open the ply file
     let file = File::open(path_ply).unwrap();
-    let instance = wgpu::Instance::default();
 
+    //handle to the gpu
+    let instance = wgpu::Instance::default();
     let adapter = instance
     .request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -18,7 +25,6 @@ async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
     })
     .await
     .expect("No suitable GPU adapters found on the system!");
-
     let required_features = wgpu::Features::default();
     let required_limits = wgpu::Limits {
         max_compute_invocations_per_workgroup: 1024,
@@ -44,13 +50,13 @@ async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
         .await
         .expect("Unable to find a suitable GPU adapter!");
 
+    // read the intrinsics and extrinsics parameters
     let (cameras_intrinsics,cameras_extrinsic) = read_cam::read_colmap_scene_info(path_bin);
     let camera = cameras_intrinsics.get(&(1 as u64)).unwrap();
     let width = if camera.width % 64 == 0{ camera.width as u32}else {64 * (camera.width as f32/64.0).round() as u32};
-
-
     let height = camera.height as u32;
 
+    //initiate the surface
     let texture = init_output_texture(&device, width,height);  //size.width
     let surface_configuration = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -62,6 +68,7 @@ async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
         alpha_mode: wgpu::CompositeAlphaMode::Opaque, 
     };
 
+    //intiat the renderer
     let renderer = Renderer::new(
         &device,
         Configuration {
@@ -83,6 +90,7 @@ async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
     //creation de la scene
     let mut scene = Scene::new(&device, &renderer, splat_count);
     
+    // load the spalt
     scene.load_chunk(&queue, &mut file, file_header_size, 0..splat_count);
 
     let viewport_size = wgpu::Extent3d {
@@ -90,6 +98,7 @@ async fn run(path_bin:&str,path_ply :&str, output_path : &str) {
         height: height,
         depth_or_array_layers: 1,};
 
+    // render the images
     println!("rendering");
     for i in cameras_extrinsic.keys() {
         println!("Image {}",i);

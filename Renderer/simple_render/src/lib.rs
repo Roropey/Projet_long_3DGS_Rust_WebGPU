@@ -302,17 +302,11 @@ impl State {
         let mut SPLAT : Vec<Splat> = vec![[0.0; 12]; 4];  
         SPLAT[0][8..12].copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
         SPLAT[0][4..8].copy_from_slice(&[0.15, 0.05, 0.05, 0.1]);
-        //SPLAT[0][4..8].copy_from_slice(&[0.2, 0.0, 0.0, 0.2]);
-        //SPLAT[0][0..2].copy_from_slice(&[0.0, 0.0]);
         SPLAT[0][0..2].copy_from_slice(&[0.0, 0.2]);
 
-        SPLAT[1][8..12].copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
-        SPLAT[1][4..8].copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
-        SPLAT[1][0..2].copy_from_slice(&[0.0, 0.0]);
-
-        /*SPLAT[1][8..12].copy_from_slice(&[0.0, 1.0, 0.0, 1.0]);
+        SPLAT[1][8..12].copy_from_slice(&[0.0, 1.0, 0.0, 1.0]);
         SPLAT[1][4..8].copy_from_slice(&[0.1, -0.01, -0.01, 0.2]);
-        SPLAT[1][0..2].copy_from_slice(&[-0.2, 0.2]);*/
+        SPLAT[1][0..2].copy_from_slice(&[-0.2, 0.2]);
 
         SPLAT[2][8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
         SPLAT[2][4..8].copy_from_slice(&[0.1, 0.2, 0.2, 0.1]);
@@ -380,7 +374,7 @@ impl State {
         
             render_pass.set_pipeline(&self.render_pipeline); // 2.
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..4, 0..2 as u32); // 2.
+            render_pass.draw(0..4, 0..3 as u32); // 2.
         }
         
         // submit will accept anything that implements IntoIter
